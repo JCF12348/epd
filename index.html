@@ -457,54 +457,6 @@
             background-color: #2980b9;
         }
 
-        .command-input-group button:hover {
-            background-color: #1e40af;
-            transform: translateY(-1px);
-        }
-
-        .text-send-area {
-            margin-top: 16px;
-        }
-
-        .text-send-area input {
-            width: calc(100% - 120px);
-            padding: 10px 12px;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            font-size: 14px;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-
-        .text-send-area input:focus {
-            border-color: #6366f1;
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-        }
-
-        .text-send-area button {
-            width: 110px;
-            padding: 10px 12px;
-            background-color: #4f46e5;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.2s ease;
-        }
-
-        .text-send-area button:hover {
-            background-color: #4338ca;
-            transform: translateY(-1px);
-        }
-
-        .text-send-area button:disabled {
-            background-color: #94a3b8;
-            cursor: not-allowed;
-            transform: none;
-        }
-
         .slider-container {
             margin-bottom: 15px;
         }
@@ -1286,24 +1238,6 @@
                                 <button class="cmd-btn" data-cmd="HELP" title="显示帮助信息">HELP</button>
                                 <button class="cmd-btn" data-cmd="AUTO 5 0" title="启动自动播放（5秒间隔，顺序模式）">AUTO 顺序</button>
                                 <button class="cmd-btn" data-cmd="AUTO 5 1" title="启动自动播放（5秒间隔，倒序模式）">AUTO 倒序</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 文字发送区域 -->
-                <div class="text-send-area">
-                    <h4>📝 文字发送</h4>
-                    <div class="command-input-group">
-                        <input type="text" id="text-input" placeholder="输入要显示的文字内容" maxlength="255" />
-                        <button id="send-text-btn" disabled>发送文字</button>
-                    </div>
-                    <div style="background-color: #eef2ff; padding: 8px; border-radius: 6px; margin-top: 6px; font-size: 13px; color:#1e40af;">
-                        发送文字到屏幕显示（需设备固件支持TEXT命令）
-                    </div>
-                </div>
-
-                <!-- 相册模式区域 -->
                                 <button class="cmd-btn" data-cmd="AUTO 5 2" title="启动自动播放（5秒间隔，随机模式）">AUTO 随机</button>
                             </div>
                             <div
@@ -1387,6 +1321,7 @@
                     <div style="margin-bottom: 16px;">
                         <label for="ditherAlgorithm">抖动算法</label>
                         <select id="ditherAlgorithm">
+                            <option value="none">无抖动 (直接映射)</option>
                             <option value="floyd-steinberg">Floyd-Steinberg</option>
                             <option value="atkinson">Atkinson</option>
                             <option value="stucki">Stucki</option>
@@ -1395,7 +1330,7 @@
                         </select>
                         <div
                             style="background-color: #eef2ff; padding: 8px; border-radius: 6px; margin-top: 6px; font-size: 13px; color:#1e40af;">
-                            <div id="algorithm-description-text">Floyd-Steinberg: 经典误差扩散算法，效果平滑</div>
+                            <div id="algorithm-description-text">无抖动: 直接将像素映射到最接近的颜色，不进行误差扩散处理</div>
                         </div>
                     </div>
                     <div>
@@ -1525,12 +1460,14 @@
         const commandOutputLog = document.getElementById("command-output-log");
         const clearCommandLogBtn = document.getElementById("clear-command-log");
 
-        const textInput = document.getElementById("text-input");
-        const sendTextBtn = document.getElementById("send-text-btn");
-
         const albumIntervalInput = document.getElementById("album-interval");
         const albumPlayBtn = document.getElementById("album-play-btn");
         const playModeRadios = document.querySelectorAll('input[name="play-mode"]');
+
+        const debugPanel = document.getElementById("debug-panel");
+
+        // 数据存储
+        let originalImage = null;
         let originalImageData = null;
         let processedImageData = null;
         let connectedDevice = null;
@@ -1566,6 +1503,7 @@
             sixColor: "六色模式：支持黑色、白色、黄色、红色、蓝色和绿色，适合E6全彩墨水屏",
         };
         const algorithmDescriptions = {
+            "none": "无抖动: 直接将像素映射到最接近的颜色，不进行误差扩散处理",
             "floyd-steinberg": "Floyd-Steinberg: 经典误差扩散算法，效果平滑",
             "atkinson": "Atkinson: 扩散较少，保留更多细节但可能显示更多图案",
             "stucki": "Stucki: 改进的误差扩散算法，比Floyd-Steinberg更平滑",
@@ -1579,6 +1517,7 @@
             sixColor: "六色模式",
         };
         const algorithmNames = {
+            "none": "无抖动",
             "floyd-steinberg": "Floyd-Steinberg",
             "atkinson": "Atkinson",
             "stucki": "Stucki",
@@ -1685,16 +1624,21 @@
                 scanBluetoothButton.style.display = 'none';
                 disconnectBluetoothButton.style.display = 'block';
                 sendCommandBtn.disabled = false;
-                sendTextBtn.disabled = false;
             } else {
                 bluetoothStatus.textContent = "未连接";
                 deviceModelSpan.textContent = "未连接";
                 scanBluetoothButton.style.display = 'block';
                 disconnectBluetoothButton.style.display = 'none';
                 sendCommandBtn.disabled = true;
-                sendTextBtn.disabled = true;
             }
         }
+
+        async function cleanupCommandCharacteristic() {
+            if (connectedCommandCharacteristic?.properties.notify) {
+                try { await connectedCommandCharacteristic.stopNotifications(); } catch (e) { }
+                connectedCommandCharacteristic.removeEventListener('characteristicvaluechanged', handleCommandNotification);
+            }
+            connectedCommandCharacteristic = null;
         }
         async function disconnectBluetooth() {
             if (connectedDevice && connectedDevice.gatt.connected) connectedDevice.gatt.disconnect();
@@ -1741,21 +1685,39 @@
         }
         sendCommandBtn.addEventListener("click", sendCommand);
         commandInput.addEventListener("keypress", (e) => { if (e.key === "Enter") sendCommand(); });
+        
+        // 为命令按钮添加事件监听器
+        document.querySelectorAll('.cmd-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const cmd = this.getAttribute('data-cmd');
+                commandInput.value = cmd;
+                sendCommand();
+            });
+        });
 
-        async function sendTextMessage() {
-            const textContent = textInput.value.trim();
-            if (!textContent) {
-                showError("请输入要发送的文字内容");
+        albumPlayBtn.addEventListener("click", async () => {
+            if (!connectedDevice || !connectedCommandCharacteristic) {
+                showError("请先连接蓝牙设备以启用相册模式");
+                appendCommandLog("相册模式失败: 蓝牙未连接", "error");
                 return;
             }
-            const textCommand = "TEXT " + textContent;
-            const success = await sendCustomCommand(textCommand);
-            if (success) textInput.value = "";
-        }
-        sendTextBtn.addEventListener("click", sendTextMessage);
-        textInput.addEventListener("keypress", (e) => { if (e.key === "Enter") sendTextMessage(); });
+            let interval = parseInt(albumIntervalInput.value);
+            if (isNaN(interval) || interval < 1) {
+                showError("播放间隔必须为大于0的整数");
+                return;
+            }
+            let mode = "sequential";
+            for (let radio of playModeRadios) {
+                if (radio.checked) {
+                    mode = radio.value;
+                    break;
+                }
+            }
+            const command = `AUTO ${interval} ${mode}`;
+            await sendCustomCommand(command);
+        });
 
-        // 为命令按钮添加事件监听器
+        // 重置图片位置、缩放、旋转
         function resetImageTransform() {
             imageScale = 1;
             imageOffsetX = 0;
@@ -2131,6 +2093,22 @@
             let palette = mode === "sixColor" ? [{ r: 0, g: 0, b: 0 }, { r: 255, g: 255, b: 255 }, { r: 255, g: 0, b: 0 }, { r: 255, g: 255, b: 0 }, { r: 0, g: 255, b: 0 }, { r: 0, g: 0, b: 255 }] : (mode === "fourColor" ? [{ r: 0, g: 0, b: 0 }, { r: 255, g: 255, b: 255 }, { r: 255, g: 255, b: 0 }, { r: 255, g: 0, b: 0 }] : (mode === "blackWhiteColor" ? [{ r: 0, g: 0, b: 0 }, { r: 255, g: 255, b: 255 }] : [{ r: 0, g: 0, b: 0 }, { r: 255, g: 255, b: 255 }, { r: 255, g: 0, b: 0 }]));
             const findClosest = (r, g, b) => { let best = palette[0], minD = Infinity; for (let c of palette) { let d = (c.r - r) ** 2 + (c.g - g) ** 2 + (c.b - b) ** 2; if (d < minD) { minD = d; best = c; } } return best; };
             const adjust = (r, g, b, sat, bri, con) => { r *= bri; g *= bri; b *= bri; r = (r - 128) * con + 128; g = (g - 128) * con + 128; b = (b - 128) * con + 128; let avg = (r + g + b) / 3; r = avg + (r - avg) * sat; g = avg + (g - avg) * sat; b = avg + (b - avg) * sat; return { r: Math.min(255, Math.max(0, r)), g: Math.min(255, Math.max(0, g)), b: Math.min(255, Math.max(0, b)) }; };
+            
+            // 无抖动算法：直接映射到最接近的颜色
+            if (algorithm === "none") {
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        let idx = (y * width + x) * 4;
+                        let { r, g, b } = adjust(data[idx], data[idx + 1], data[idx + 2], saturation, brightness, contrast);
+                        let newC = findClosest(r, g, b);
+                        data[idx] = newC.r;
+                        data[idx + 1] = newC.g;
+                        data[idx + 2] = newC.b;
+                    }
+                }
+                return;
+            }
+            
             let diffusionMatrix; if (algorithm === "floyd-steinberg") diffusionMatrix = [{ x: 1, y: 0, fraction: 7 / 16 }, { x: -1, y: 1, fraction: 3 / 16 }, { x: 0, y: 1, fraction: 5 / 16 }, { x: 1, y: 1, fraction: 1 / 16 }]; else if (algorithm === "atkinson") diffusionMatrix = [{ x: 1, y: 0, fraction: 1 / 8 }, { x: 2, y: 0, fraction: 1 / 8 }, { x: -1, y: 1, fraction: 1 / 8 }, { x: 0, y: 1, fraction: 1 / 8 }, { x: 1, y: 1, fraction: 1 / 8 }, { x: 0, y: 2, fraction: 1 / 8 }]; else if (algorithm === "stucki") diffusionMatrix = [{ x: 1, y: 0, fraction: 8 / 42 }, { x: 2, y: 0, fraction: 4 / 42 }, { x: -2, y: 1, fraction: 2 / 42 }, { x: -1, y: 1, fraction: 4 / 42 }, { x: 0, y: 1, fraction: 8 / 42 }, { x: 1, y: 1, fraction: 4 / 42 }, { x: 2, y: 1, fraction: 2 / 42 }, { x: -2, y: 2, fraction: 1 / 42 }, { x: -1, y: 2, fraction: 2 / 42 }, { x: 0, y: 2, fraction: 4 / 42 }, { x: 1, y: 2, fraction: 2 / 42 }, { x: 2, y: 2, fraction: 1 / 42 }]; else if (algorithm === "jarvis-judice-ninke") diffusionMatrix = [{ x: 1, y: 0, fraction: 7 / 48 }, { x: 2, y: 0, fraction: 5 / 48 }, { x: -2, y: 1, fraction: 3 / 48 }, { x: -1, y: 1, fraction: 5 / 48 }, { x: 0, y: 1, fraction: 7 / 48 }, { x: 1, y: 1, fraction: 5 / 48 }, { x: 2, y: 1, fraction: 3 / 48 }, { x: -2, y: 2, fraction: 1 / 48 }, { x: -1, y: 2, fraction: 3 / 48 }, { x: 0, y: 2, fraction: 5 / 48 }, { x: 1, y: 2, fraction: 3 / 48 }, { x: 2, y: 2, fraction: 1 / 48 }]; else if (algorithm === "bayer") { const bayerMat = [[0, 32, 8, 40, 2, 34, 10, 42], [48, 16, 56, 24, 50, 18, 58, 26], [12, 44, 4, 36, 14, 46, 6, 38], [60, 28, 52, 20, 62, 30, 54, 22], [3, 35, 11, 43, 1, 33, 9, 41], [51, 19, 59, 27, 49, 17, 57, 25], [15, 47, 7, 39, 13, 45, 5, 37], [63, 31, 55, 23, 61, 29, 53, 21]]; for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) { let idx = (y * width + x) * 4; let { r, g, b } = adjust(data[idx], data[idx + 1], data[idx + 2], saturation, brightness, contrast); let th = bayerMat[y % 8][x % 8] / 64 * 255; let gray = 0.299 * r + 0.587 * g + 0.114 * b; if (mode === "blackWhiteColor") { let newC = gray >= th ? palette[1] : palette[0]; data[idx] = newC.r; data[idx + 1] = newC.g; data[idx + 2] = newC.b; } else { let adjR = r + (gray - th) * diffusion, adjG = g + (gray - th) * diffusion, adjB = b + (gray - th) * diffusion; let close = findClosest(adjR, adjG, adjB); data[idx] = close.r; data[idx + 1] = close.g; data[idx + 2] = close.b; } } return; } else diffusionMatrix = [{ x: 1, y: 0, fraction: 7 / 16 }, { x: -1, y: 1, fraction: 3 / 16 }, { x: 0, y: 1, fraction: 5 / 16 }, { x: 1, y: 1, fraction: 1 / 16 }]; for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) { let idx = (y * width + x) * 4; let { r, g, b } = adjust(data[idx], data[idx + 1], data[idx + 2], saturation, brightness, contrast); let newC = mode === "blackWhiteColor" ? ((0.299 * r + 0.587 * g + 0.114 * b) >= 128 ? palette[1] : palette[0]) : findClosest(r, g, b); let errR = r - newC.r, errG = g - newC.g, errB = b - newC.b; data[idx] = newC.r; data[idx + 1] = newC.g; data[idx + 2] = newC.b; for (let { x: dx, y: dy, fraction } of diffusionMatrix) { let nx = x + dx, ny = y + dy; if (nx >= 0 && nx < width && ny >= 0 && ny < height) { let nIdx = (ny * width + nx) * 4; data[nIdx] = Math.min(255, Math.max(0, data[nIdx] + errR * fraction * diffusion)); data[nIdx + 1] = Math.min(255, Math.max(0, data[nIdx + 1] + errG * fraction * diffusion)); data[nIdx + 2] = Math.min(255, Math.max(0, data[nIdx + 2] + errB * fraction * diffusion)); } } }
         }
         function processImageData(imageData) {
