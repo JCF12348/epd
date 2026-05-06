@@ -457,6 +457,54 @@
             background-color: #2980b9;
         }
 
+        .command-input-group button:hover {
+            background-color: #1e40af;
+            transform: translateY(-1px);
+        }
+
+        .text-send-area {
+            margin-top: 16px;
+        }
+
+        .text-send-area input {
+            width: calc(100% - 120px);
+            padding: 10px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .text-send-area input:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .text-send-area button {
+            width: 110px;
+            padding: 10px 12px;
+            background-color: #4f46e5;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .text-send-area button:hover {
+            background-color: #4338ca;
+            transform: translateY(-1px);
+        }
+
+        .text-send-area button:disabled {
+            background-color: #94a3b8;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         .slider-container {
             margin-bottom: 15px;
         }
@@ -1238,6 +1286,24 @@
                                 <button class="cmd-btn" data-cmd="HELP" title="显示帮助信息">HELP</button>
                                 <button class="cmd-btn" data-cmd="AUTO 5 0" title="启动自动播放（5秒间隔，顺序模式）">AUTO 顺序</button>
                                 <button class="cmd-btn" data-cmd="AUTO 5 1" title="启动自动播放（5秒间隔，倒序模式）">AUTO 倒序</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 文字发送区域 -->
+                <div class="text-send-area">
+                    <h4>📝 文字发送</h4>
+                    <div class="command-input-group">
+                        <input type="text" id="text-input" placeholder="输入要显示的文字内容" maxlength="255" />
+                        <button id="send-text-btn" disabled>发送文字</button>
+                    </div>
+                    <div style="background-color: #eef2ff; padding: 8px; border-radius: 6px; margin-top: 6px; font-size: 13px; color:#1e40af;">
+                        发送文字到屏幕显示（需设备固件支持TEXT命令）
+                    </div>
+                </div>
+
+                <!-- 相册模式区域 -->
                                 <button class="cmd-btn" data-cmd="AUTO 5 2" title="启动自动播放（5秒间隔，随机模式）">AUTO 随机</button>
                             </div>
                             <div
@@ -1459,14 +1525,12 @@
         const commandOutputLog = document.getElementById("command-output-log");
         const clearCommandLogBtn = document.getElementById("clear-command-log");
 
+        const textInput = document.getElementById("text-input");
+        const sendTextBtn = document.getElementById("send-text-btn");
+
         const albumIntervalInput = document.getElementById("album-interval");
         const albumPlayBtn = document.getElementById("album-play-btn");
         const playModeRadios = document.querySelectorAll('input[name="play-mode"]');
-
-        const debugPanel = document.getElementById("debug-panel");
-
-        // 数据存储
-        let originalImage = null;
         let originalImageData = null;
         let processedImageData = null;
         let connectedDevice = null;
@@ -1621,21 +1685,16 @@
                 scanBluetoothButton.style.display = 'none';
                 disconnectBluetoothButton.style.display = 'block';
                 sendCommandBtn.disabled = false;
+                sendTextBtn.disabled = false;
             } else {
                 bluetoothStatus.textContent = "未连接";
                 deviceModelSpan.textContent = "未连接";
                 scanBluetoothButton.style.display = 'block';
                 disconnectBluetoothButton.style.display = 'none';
                 sendCommandBtn.disabled = true;
+                sendTextBtn.disabled = true;
             }
         }
-
-        async function cleanupCommandCharacteristic() {
-            if (connectedCommandCharacteristic?.properties.notify) {
-                try { await connectedCommandCharacteristic.stopNotifications(); } catch (e) { }
-                connectedCommandCharacteristic.removeEventListener('characteristicvaluechanged', handleCommandNotification);
-            }
-            connectedCommandCharacteristic = null;
         }
         async function disconnectBluetooth() {
             if (connectedDevice && connectedDevice.gatt.connected) connectedDevice.gatt.disconnect();
@@ -1682,39 +1741,21 @@
         }
         sendCommandBtn.addEventListener("click", sendCommand);
         commandInput.addEventListener("keypress", (e) => { if (e.key === "Enter") sendCommand(); });
-        
+
+        async function sendTextMessage() {
+            const textContent = textInput.value.trim();
+            if (!textContent) {
+                showError("请输入要发送的文字内容");
+                return;
+            }
+            const textCommand = "TEXT " + textContent;
+            const success = await sendCustomCommand(textCommand);
+            if (success) textInput.value = "";
+        }
+        sendTextBtn.addEventListener("click", sendTextMessage);
+        textInput.addEventListener("keypress", (e) => { if (e.key === "Enter") sendTextMessage(); });
+
         // 为命令按钮添加事件监听器
-        document.querySelectorAll('.cmd-btn').forEach(button => {
-            button.addEventListener('click', function() {
-                const cmd = this.getAttribute('data-cmd');
-                commandInput.value = cmd;
-                sendCommand();
-            });
-        });
-
-        albumPlayBtn.addEventListener("click", async () => {
-            if (!connectedDevice || !connectedCommandCharacteristic) {
-                showError("请先连接蓝牙设备以启用相册模式");
-                appendCommandLog("相册模式失败: 蓝牙未连接", "error");
-                return;
-            }
-            let interval = parseInt(albumIntervalInput.value);
-            if (isNaN(interval) || interval < 1) {
-                showError("播放间隔必须为大于0的整数");
-                return;
-            }
-            let mode = "sequential";
-            for (let radio of playModeRadios) {
-                if (radio.checked) {
-                    mode = radio.value;
-                    break;
-                }
-            }
-            const command = `AUTO ${interval} ${mode}`;
-            await sendCustomCommand(command);
-        });
-
-        // 重置图片位置、缩放、旋转
         function resetImageTransform() {
             imageScale = 1;
             imageOffsetX = 0;
