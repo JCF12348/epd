@@ -1,2 +1,2 @@
-# epd-3.98-4color
-huawei-epd-3.98-4color
+# epd-3.98-四色
+华为电子纸显示屏 3.98 英寸 4色ESP32上位机
