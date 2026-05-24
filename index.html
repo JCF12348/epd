@@ -1006,6 +1006,87 @@
             letter-spacing: 0.2px;
         }
 
+        /* ========== 模式切换 ========== */
+        .mode-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .mode-btn {
+            padding: 8px 16px;
+            border: 2px solid transparent;
+            background: #f7fafd;
+            border-radius: var(--radius-xs);
+            cursor: pointer;
+            transition: all var(--transition);
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 0;
+            width: auto;
+            flex: 1;
+            text-align: center;
+        }
+        .mode-btn.active {
+            border-color: var(--primary);
+            background: var(--primary-light);
+            color: var(--primary);
+        }
+        .mode-btn:hover:not(.active) {
+            background: var(--border-light);
+        }
+
+        /* ========== 日历/时钟控制 ========== */
+        .calendar-controls {
+            background: linear-gradient(160deg, #f7fdfa 0%, #edf7f2 100%);
+            border: 1px solid #c8e2d6;
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-top: 14px;
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .calendar-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .calendar-input-group label {
+            font-size: 12px;
+            color: #3b6d56;
+            font-weight: 500;
+        }
+        .calendar-input-group input, 
+        .calendar-input-group select {
+            padding: 8px;
+            border: 1px solid #c0d9cc;
+            border-radius: var(--radius-xs);
+            font-size: 13px;
+            background: #fff;
+            margin-bottom: 0;
+        }
+        .calendar-btn-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .calendar-btn {
+            flex: 1;
+            background-color: #256348;
+            margin-bottom: 0;
+        }
+        .calendar-btn:hover {
+            background-color: #1b4c36;
+        }
+        .hidden {
+            display: none !important;
+        }
+
         /* ========== 滚动条 ========== */
         ::-webkit-scrollbar {
             width: 6px;
@@ -1161,36 +1242,82 @@
             </div>
 
             <div class="bluetooth-panel">
-                <h2 class="section-title">显示屏驱动</h2>
-                <select id="driver-select">
-                    <option value="">请选择驱动</option>
-                    <option value="EL044TS2">EL044TS2</option>
-                    <option value="EL073TF1">EL073TF1</option>
-                    <option value="EL081TS2">EL081TS2</option>
-                    <option value="HE583A04A1">HE583A04A1</option>
-                    <option value="HSE097SE">HSE097SE</option>
-                    <option value="SE0398NZ07A0">SE0398NZ07A0</option>
-                    <option value="SE0398NZ07A1">SE0398NZ07A1</option>
-                    <option value="WFT0371CZ78">WFT0371CZ78</option>
+                <h2 class="section-title">设备图片列表</h2>
+                <select id="image-list-select">
+                    <option value="">未连接设备</option>
                 </select>
+                <div class="bluetooth-button-group">
+                    <button id="refresh-image-list">刷新列表</button>
+                    <button id="show-selected-image">显示选中</button>
+                </div>
             </div>
         </div>
 
         <!-- 预览与控制（预览区域更大） -->
         <div class="preview-and-controls">
             <div class="preview-panel">
-                <h2 class="section-title">图像预览（可拖动+滚轮缩放+双指缩放）</h2>
-                <div style="text-align: center; margin-bottom: 12px;">
-                    <div class="canvas-wrapper">
-                        <canvas id="image-canvas"></canvas>
-                        <div id="canvas-size-indicator">800×480</div>
+                <h2 class="section-title">显示预览</h2>
+                
+                <!-- 模式选择器 -->
+                <div class="mode-selector" id="mode-selector">
+                    <button class="mode-btn active" data-mode="image">🖼️ 图像模式</button>
+                    <button class="mode-btn" data-mode="calendar">📅 日历模式</button>
+                    <button class="mode-btn" data-mode="clock">⏰ 时钟模式</button>
+                </div>
+
+                <!-- 图像模式界面 -->
+                <div id="image-mode-interface">
+                    <div style="text-align: center; margin-bottom: 12px;">
+                        <div class="canvas-wrapper">
+                            <canvas id="image-canvas"></canvas>
+                            <div id="canvas-size-indicator">800×480</div>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <strong>提示:</strong> 在右侧调整参数时，左侧图像会实时更新，方便您观察效果变化
+                    </div>
+                    <div class="param-button-group">
+                        <button id="toggle-debug">🔧 调试模式</button>
                     </div>
                 </div>
-                <div class="info-card">
-                    <strong>提示:</strong> 在右侧调整参数时，左侧图像会实时更新，方便您观察效果变化
-                </div>
-                <div class="param-button-group">
-                    <button id="toggle-debug">🔧 调试模式</button>
+
+                <!-- 日历/时钟模式界面 -->
+                <div id="calendar-mode-interface" class="hidden">
+                    <div class="calendar-controls">
+                        <div class="album-title" style="margin-top:0;">📅 日历与时钟设置</div>
+                        <div class="calendar-grid">
+                            <div class="calendar-input-group">
+                                <label>日期时间</label>
+                                <input type="datetime-local" id="calendar-datetime">
+                            </div>
+                            <div class="calendar-input-group">
+                                <label>起始星期</label>
+                                <select id="week-start">
+                                    <option value="0">星期日</option>
+                                    <option value="1" selected>星期一</option>
+                                </select>
+                            </div>
+                            <div class="calendar-input-group">
+                                <label>温度 (°C)</label>
+                                <input type="number" id="temperature" value="25" min="-50" max="100">
+                            </div>
+                            <div class="calendar-input-group">
+                                <label>电压 (V)</label>
+                                <input type="number" id="voltage" value="3.7" min="0" max="10" step="0.1">
+                            </div>
+                            <div class="calendar-input-group" style="grid-column: span 2;">
+                                <label>WiFi SSID</label>
+                                <input type="text" id="ssid" value="ESP32-DEVICE" maxlength="20">
+                            </div>
+                        </div>
+                        <div class="calendar-btn-group">
+                            <button id="show-calendar" class="calendar-btn">📤 发送日历显示</button>
+                            <button id="show-clock" class="calendar-btn">📤 发送时钟显示</button>
+                        </div>
+                    </div>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>注意:</strong> 此功能需要固件支持 CALENDAR/CLOCK 命令。发送后设备将显示对应的信息界面。
+                    </div>
                 </div>
                 <div id="debug-panel" class="collapsible-panel" style="display: none;">
                     <div class="sub-section">
@@ -1208,15 +1335,18 @@
                                 <button id="send-command-btn" disabled>发送</button>
                             </div>
                             <div class="command-buttons-grid">
-                                <button class="cmd-btn" data-cmd="FORMAT" title="格式化SPIFFS，重启设备">FORMAT</button>
-                                <button class="cmd-btn" data-cmd="LIST" title="列出IMG_*图片文件">LIST</button>
-                                <button class="cmd-btn" data-cmd="LIST ALL" title="列出所有文件">LIST ALL</button>
-                                <button class="cmd-btn" data-cmd="STATUS" title="显示SPIFFS使用情况、图片数量等">STATUS</button>
-                                <button class="cmd-btn" data-cmd="HELP" title="显示帮助信息">HELP</button>
-                                <button class="cmd-btn" data-cmd="CLEAR" title="清除所有图片文件">CLEAR</button>
+                                <button class="cmd-btn" data-cmd="FORMAT" title="格式化SPIFFS，重启设备">格式化并重启</button>
+                                <button class="cmd-btn" data-cmd="LIST" title="列出IMG_*图片文件">图片列表</button>
+                                <button class="cmd-btn" data-cmd="LIST ALL" title="列出所有文件">列出所有文件</button>
+                                <button class="cmd-btn" data-cmd="STATUS" title="显示SPIFFS使用情况、图片数量等">设备信息</button>
+                                <button class="cmd-btn" data-cmd="HELP" title="显示帮助信息">显示帮助信息</button>
+                                <button class="cmd-btn" data-cmd="CLEAR" title="清空屏幕显示（执行硬件清屏）">清屏</button>
                                 <button class="cmd-btn" data-cmd="AUTO 5 0" title="启动自动播放（5秒间隔，顺序模式）">AUTO 顺序</button>
                                 <button class="cmd-btn" data-cmd="AUTO 5 1" title="启动自动播放（5秒间隔，倒序模式）">AUTO 倒序</button>
                                 <button class="cmd-btn" data-cmd="AUTO 5 2" title="启动自动播放（5秒间隔，随机模式）">AUTO 随机</button>
+                                <button class="cmd-btn" data-cmd="STOP" title="停止自动播放">停止自动播放</button>
+                                <button class="cmd-btn" data-cmd="RESET" title="重启设备">重启设备</button>
+                                <button class="cmd-btn" data-cmd="SLEEP" title="进入深度睡眠">进入深度睡眠</button>
                             </div>
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
                                 <span style="font-size:10px; color:#8b9aaa; letter-spacing:0.2px;">执行结果 & 通知</span>
@@ -1235,11 +1365,14 @@
                         <input type="number" id="album-interval" value="3600" min="1" step="1">
                     </div>
                     <div class="radio-group">
-                        <label><input type="radio" name="play-mode" value="sequential" checked> 顺序</label>
-                        <label><input type="radio" name="play-mode" value="reverse"> 倒序</label>
-                        <label><input type="radio" name="play-mode" value="random"> 随机</label>
+                        <label><input type="radio" name="play-mode" value="0" checked> 顺序</label>
+                        <label><input type="radio" name="play-mode" value="1"> 倒序</label>
+                        <label><input type="radio" name="play-mode" value="2"> 随机</label>
                     </div>
-                    <button id="album-play-btn">▶ 自动播放</button>
+                    <div style="display:flex;gap:7px;">
+    <button id="album-play-btn" style="flex:1;">▶ 自动播放</button>
+    <button id="album-stop-btn" style="flex:1;background-color:#e8983e;">■ 停止播放</button>
+</div>
                 </div>
             </div>
 
@@ -1407,7 +1540,28 @@
             const clearCommandLogBtn = $('#clear-command-log');
             const albumIntervalInput = $('#album-interval');
             const albumPlayBtn = $('#album-play-btn');
+            const albumStopBtn = $('#album-stop-btn');
             const playModeRadios = $$('input[name="play-mode"]');
+            const imageListSelect = $('#image-list-select');
+            
+            // 日历/时钟相关元素
+            const modeSelector = $('#mode-selector');
+            const imageModeInterface = $('#image-mode-interface');
+            const calendarModeInterface = $('#calendar-mode-interface');
+            const datetimeInput = $('#calendar-datetime');
+            const weekStartSelect = $('#week-start');
+            const temperatureInput = $('#temperature');
+            const voltageInput = $('#voltage');
+            const ssidInput = $('#ssid');
+            const showCalendarBtn = $('#show-calendar');
+            const showClockBtn = $('#show-clock');
+
+            // 初始化时间选择器为当前时间
+            const now = new Date();
+            const localISOTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+            if(datetimeInput) datetimeInput.value = localISOTime;
+
+            let currentDisplayMode = 'image'; // 'image', 'calendar', 'clock'
 
             const SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
             const DATA_CHAR_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
@@ -1478,6 +1632,9 @@
             let currentRotation = 0;
             let touchDistance = 0;
             let debounceTimer = null;
+            let listResponseBuffer = '';
+            let listResponseTimeout = null;
+            let showCommandPending = false;
 
             function formatTime(seconds) { const m = Math.floor(seconds / 60); const s = Math.floor(seconds % 60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
             function showLoading(text) { loadingText.textContent = text;
@@ -1659,7 +1816,13 @@
                 updateStatusInfo();
                 showToast('蓝牙连接已断开');
                 appendCommandLog('蓝牙断开，命令功能不可用', 'error'); }
-            function handleCmdNotification(event) { const value = event.target.value; let decoded; try { decoded = new TextDecoder('utf-8').decode(value); } catch (e) { decoded = [...new Uint8Array(value)].map(b => b.toString(16).padStart(2, '0')).join(' '); } appendCommandLog(`<< 接收响应: ${decoded}`, 'recv'); }
+            function handleCmdNotification(event) { const value = event.target.value; let decoded; try { decoded = new TextDecoder('utf-8').decode(value); } catch (e) { decoded = [...new Uint8Array(value)].map(b => b.toString(16).padStart(2, '0')).join(' '); } appendCommandLog(`<< 接收响应: ${decoded}`, 'recv');
+                listResponseBuffer += decoded;
+                clearTimeout(listResponseTimeout);
+                listResponseTimeout = setTimeout(() => {
+                    parseAndPopulateImageList(listResponseBuffer);
+                    listResponseBuffer = '';
+                }, 600); }
             async function sendCustomCommand(cmdText) { if (!connectedDevice || !connectedCommandChar) { showToast('未连接蓝牙或命令特征不可用');
                     appendCommandLog('错误: 蓝牙未连接或命令特征无效', 'error'); return false; } try { await connectedCommandChar.writeValue(new TextEncoder().encode(cmdText));
                     appendCommandLog(`>> 发送命令: ${cmdText}`, 'send'); return true; } catch (err) { appendCommandLog(`发送失败: ${err.message}`, 'error');
@@ -1726,7 +1889,7 @@
                     canvasHeightInput.value = h;
                     updateCanvas(); } });
             updateCanvasBtn.addEventListener('click', updateCanvas);
-            driverSelect.addEventListener('change', () => { const cfg = DRIVER_CONFIG[driverSelect.value]; if (cfg) { canvasWidthInput.value = cfg.width;
+            if (driverSelect) driverSelect.addEventListener('change', () => { const cfg = DRIVER_CONFIG[driverSelect.value]; if (cfg) { canvasWidthInput.value = cfg.width;
                     canvasHeightInput.value = cfg.height;
                     ditherModeSelect.value = cfg.colorMode;
                     updateCanvas();
@@ -1766,7 +1929,9 @@
                     connectedCommandChar = cmdChar || null;
                     updateStatusInfo();
                     showToast('设备连接成功');
-                    sendCommandBtn.disabled = !connectedCommandChar; } catch (e) { console.error(e);
+                    sendCommandBtn.disabled = !connectedCommandChar;
+                    // 连接成功后自动获取设备上的图片列表
+                    setTimeout(() => refreshImageList(), 600); } catch (e) { console.error(e);
                     showToast(`连接失败: ${e.message}`); } finally { hideLoading(); } });
             disconnectBluetoothBtn.addEventListener('click', disconnectBluetooth);
             sendBluetoothBtn.addEventListener('click', async () => { if (isTransferring) { showToast('传输正在进行中'); return; } if (!connectedDevice || !connectedCharacteristic) { showToast('请先连接蓝牙设备！'); return; } if (!processedImageData) { showToast('请先处理图片！'); return; } try { isTransferring = true;
@@ -1784,10 +1949,132 @@
             commandInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendCommand(); });
             $$('.cmd-btn').forEach(btn => { btn.addEventListener('click', function() { commandInput.value = this.getAttribute('data-cmd');
                     sendCommand(); }); });
+            // ---- 图片列表功能 ----
+            function parseAndPopulateImageList(response) {
+                imageListSelect.innerHTML = '';
+                const lines = response.split('\n');
+                let count = 0;
+                for (const line of lines) {
+                    const match = line.match(/\/?(IMG_\d+\.bin)/);
+                    if (match) {
+                        const opt = document.createElement('option');
+                        opt.value = '/' + match[1];
+                        opt.textContent = match[1];
+                        imageListSelect.appendChild(opt);
+                        count++;
+                    }
+                }
+                if (count === 0) {
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = '无图片文件';
+                    imageListSelect.appendChild(opt);
+                } else {
+                    const hdr = document.createElement('option');
+                    hdr.value = '';
+                    hdr.textContent = `-- 共 ${count} 张图片 --`;
+                    hdr.disabled = true;
+                    imageListSelect.insertBefore(hdr, imageListSelect.firstChild);
+                    imageListSelect.selectedIndex = 1;
+                }
+            }
+            async function refreshImageList() {
+                if (!connectedDevice || !connectedCommandChar) return;
+                listResponseBuffer = '';
+                try {
+                    await sendCustomCommand('LIST ALL');
+                } catch (e) {
+                    appendCommandLog('LIST ALL 命令发送失败', 'error');
+                }
+            }
+
+            // 模式切换逻辑
+            function switchMode(mode) {
+                currentDisplayMode = mode;
+                // 更新按钮状态
+                $$('.mode-btn').forEach(btn => {
+                    if (btn.dataset.mode === mode) btn.classList.add('active');
+                    else btn.classList.remove('active');
+                });
+
+                // 切换界面显示
+                if (mode === 'image') {
+                    imageModeInterface.classList.remove('hidden');
+                    calendarModeInterface.classList.add('hidden');
+                } else {
+                    imageModeInterface.classList.add('hidden');
+                    calendarModeInterface.classList.remove('hidden');
+                }
+            }
+
+            // 发送日历/时钟命令
+            async function sendCalendarClockCommand(type) {
+                if (!connectedCommandChar) {
+                    showToast('请先连接蓝牙设备');
+                    return;
+                }
+                
+                const datetimeValue = datetimeInput.value;
+                if (!datetimeValue) {
+                    showToast('请选择日期时间');
+                    return;
+                }
+
+                const date = new Date(datetimeValue);
+                const timestamp = Math.floor(date.getTime() / 1000);
+                const weekStart = weekStartSelect.value;
+                const temp = parseInt(temperatureInput.value) || 0;
+                const volt = parseFloat(voltageInput.value) || 0;
+                const voltInt = Math.round(volt * 10); // 转换为整数发送，例如 3.7V -> 37
+                const ssid = ssidInput.value || 'ESP32';
+
+                // 命令格式: COMMAND <timestamp> <weekstart> <temp> <volt*10> <ssid>
+                const cmd = `${type} ${timestamp} ${weekStart} ${temp} ${voltInt} ${ssid}`;
+                
+                if (await sendCustomCommand(cmd)) {
+                    showToast(`${type} 命令已发送`);
+                }
+            }
+
+            // 绑定模式切换事件
+            if (modeSelector) {
+                modeSelector.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('mode-btn')) {
+                        switchMode(e.target.dataset.mode);
+                    }
+                });
+            }
+
+            // 绑定日历/时钟按钮事件
+            if (showCalendarBtn) showCalendarBtn.addEventListener('click', () => sendCalendarClockCommand('CALENDAR'));
+            if (showClockBtn) showClockBtn.addEventListener('click', () => sendCalendarClockCommand('CLOCK'));
+            imageListSelect.addEventListener('change', () => {
+                // 仅切换选中项，不发送命令
+            });
+            $('#refresh-image-list').addEventListener('click', () => {
+                if (!connectedDevice || !connectedCommandChar) { showToast('请先连接蓝牙'); return; }
+                refreshImageList();
+                showToast('正在刷新图片列表...');
+            });
+            $('#show-selected-image').addEventListener('click', async () => {
+                const fn = imageListSelect.value;
+                if (!fn) { showToast('请先选择图片'); return; }
+                if (!connectedDevice || !connectedCommandChar) { showToast('请先连接蓝牙'); return; }
+                if (showCommandPending) return;
+                showCommandPending = true;
+                try {
+                    await sendCustomCommand('SHOW ' + fn);
+                    } finally {
+                        showCommandPending = false;
+                         }
+            });
+            // ---- 图片列表功能结束 ----
+
             clearCommandLogBtn.addEventListener('click', () => { commandOutputLog.innerHTML = '';
                 appendCommandLog('日志已清空', 'error'); });
             albumPlayBtn.addEventListener('click', async () => { if (!connectedDevice || !connectedCommandChar) { showToast('请先连接蓝牙设备以启用相册模式');
-                    appendCommandLog('相册模式失败: 蓝牙未连接', 'error'); return; } const interval = parseInt(albumIntervalInput.value); if (isNaN(interval) || interval < 1) { showToast('播放间隔必须为大于0的整数'); return; } let mode = 'sequential'; for (const r of playModeRadios) { if (r.checked) { mode = r.value; break; } } await sendCustomCommand(`AUTO ${interval} ${mode}`); });
+                    appendCommandLog('相册模式失败: 蓝牙未连接', 'error'); return; } const interval = parseInt(albumIntervalInput.value); if (isNaN(interval) || interval < 1) { showToast('播放间隔必须为大于0的整数'); return; } let mode = '0'; for (const r of playModeRadios) { if (r.checked) { mode = r.value; break; } } await sendCustomCommand('AUTO ' + interval + ' ' + mode); });
+            albumStopBtn.addEventListener('click', async () => { if (!connectedDevice || !connectedCommandChar) { showToast('请先连接蓝牙设备'); return; } await sendCustomCommand('STOP'); });
 
             function detectDevice() { const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent); const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0; if (isMobile || isTouch) { document.body.classList.add('touch-device');
                     $$('button').forEach(b => { b.addEventListener('touchstart', () => b.style.transform = 'scale(0.97)');
