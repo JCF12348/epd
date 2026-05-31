@@ -1,27 +1,27 @@
-
+<!DOCTYPE html>
 <html lang="zh">
 
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>蓝牙图像处理工具 - 相册模式</title>
-    <样式>
-        :根目录 {
-            --背景: #f2f7fc;
-            --表面: #ffffff;
-            --边框: #d2e0ee;
-            --边框浅色: #e4edf5;
-            --文本: #0f2538;
-            --文本-次要: #43627a;
-            --文字暗化: #6b8499;
-            --主要: #4a9fd8;
-            --主要悬停: #3a8bc4;
-            --主要浅色: #e4f2fb;
-            --主要软: #f2f8fd;
-            -- accent: #38b286;
-            -- accent-hover: #2d9b70;
-            -- accent-light: #e9f7f1;
-            --成功: #38b286;
+    <style>
+        :root {
+            --bg: #f2f7fc;
+            --surface: #ffffff;
+            --border: #d2e0ee;
+            --border-light: #e4edf5;
+            --text: #0f2538;
+            --text-secondary: #43627a;
+            --text-muted: #6b8499;
+            --primary: #4a9fd8;
+            --primary-hover: #3a8bc4;
+            --primary-light: #e4f2fb;
+            --primary-soft: #f2f8fd;
+            --accent: #38b286;
+            --accent-hover: #2d9b70;
+            --accent-light: #e9f7f1;
+            --success: #38b286;
             --success-hover: #2d9b70;
             --success-light: #e9f7f1;
             --danger: #e06055;
@@ -47,7 +47,7 @@
             --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', 'Monaco', monospace;
         }
 
-
+        * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
@@ -75,7 +75,7 @@
             margin: 0 auto;
             background-color: var(--surface);
             border-radius: var(--radius-xl);
-            box-shadow：var(--shadow-lg);
+            box-shadow: var(--shadow-lg);
             padding: 28px 30px;
             border: 1px solid var(--border-light);
             position: relative;
@@ -1482,8 +1482,9 @@
             </div>
         </div>
 
+        <!-- 版权声明 -->
         <div class="copyright-footer">
-            ©Source from BlackCat  modify by JCF 2026
+            ©Source from BlackCat tls0922, modify by JCF 2026
         </div>
     </div>
 
