@@ -5,6 +5,14 @@ let canvas, ctx, textDecoder;
 let paintManager, cropManager;
 let bleWriteChain = Promise.resolve();
 let currentPinsValue = '';
+let ditherSourceImageData = null;
+let ditherPreviewActive = false;
+
+const PAGE_BACKGROUND_STORAGE_KEY = 'epdCustomPageBackground';
+const UI_OPACITY_STORAGE_KEY = 'epdUiOpacity';
+const PAGE_BACKGROUND_MAX_SIZE = 1920;
+const PAGE_BACKGROUND_QUALITY = 0.82;
+const DEFAULT_UI_OPACITY = 0.88;
 
 const EPD_SERVICE_UUID = '62750001-d828-918d-fb46-b6c11c675aec';
 const EPD_CHARACTERISTIC_UUID = '62750002-d828-918d-fb46-b6c11c675aec';
@@ -20,6 +28,7 @@ const EpdCmd = {
   SLEEP: 0x06,
 
   SET_TIME: 0x20,
+  SET_WEEK_START: 0x21,
 
   WRITE_IMG: 0x30, // v1.6
 
@@ -198,12 +207,15 @@ async function setDriver() {
     updateButtonStatus();
   }
 }
-async function syncTime(mode) {
-  if (mode === 2) {
-    if (!confirm('提醒：时钟模式目前使用全刷实现，此功能目前多用于修复老化屏残影问题，不建议长期开启，是否继续？')) return;
-  }
-  const timestamp = new Date().getTime() / 1000;
-  const data = new Uint8Array([
+function getWeekStart() {
+  const weekStart = document.getElementById('weekStart');
+  const value = weekStart ? parseInt(weekStart.value, 10) : 0;
+  return Number.isInteger(value) && value >= 0 && value <= 6 ? value : 0;
+}
+
+function buildTimeData(mode) {
+  const timestamp = Math.floor(new Date().getTime() / 1000);
+  return new Uint8Array([
     (timestamp >> 24) & 0xFF,
     (timestamp >> 16) & 0xFF,
     (timestamp >> 8) & 0xFF,
@@ -211,10 +223,25 @@ async function syncTime(mode) {
     -(new Date().getTimezoneOffset() / 60),
     mode
   ]);
-  if (await write(EpdCmd.SET_TIME, data)) {
-    addLog("时间已同步！");
+}
+
+async function sendTimeCommand(mode, modeName) {
+  const weekStart = getWeekStart();
+  if (!await write(EpdCmd.SET_WEEK_START, new Uint8Array([weekStart]))) return false;
+
+  if (await write(EpdCmd.SET_TIME, buildTimeData(mode))) {
+    addLog(`${modeName}已同步！`);
     addLog("屏幕刷新完成前请不要操作。");
+    return true;
   }
+  return false;
+}
+
+async function syncTime(mode) {
+  if (mode === 2) {
+    if (!confirm('提醒：时钟模式目前使用全刷实现，此功能目前多用于修复老化屏残影问题，不建议长期开启，是否继续？')) return;
+  }
+  await sendTimeCommand(mode, mode === 1 ? '日历模式' : '时钟模式');
 }
 
 async function clearScreen() {
@@ -365,8 +392,7 @@ async function sendimg() {
   const status = document.getElementById("status");
   status.parentElement.style.display = "block";
 
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const processedData = processImageData(imageData, ditherMode);
+  const processedData = processCanvasImageData();
 
   updateButtonStatus(true);
 
@@ -422,8 +448,7 @@ function downloadDataArray() {
   }
 
   const mode = document.getElementById('ditherMode').value;
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const processedData = processImageData(imageData, mode);
+  const processedData = processCanvasImageData();
 
   if (mode === 'sixColor' && processedData.length !== canvas.width * canvas.height) {
     console.log(`错误：预期${canvas.width * canvas.height}字节，但得到${processedData.length}字节`);
@@ -638,8 +663,23 @@ function clearLog() {
 }
 
 function fillCanvas(style) {
+  resetDitherPreviewSource();
   ctx.fillStyle = style;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (paintManager && paintManager.setBaseImageData) paintManager.setBaseImageData();
+}
+
+function cloneImageData(imageData) {
+  return new ImageData(
+    new Uint8ClampedArray(imageData.data),
+    imageData.width,
+    imageData.height
+  );
+}
+
+function resetDitherPreviewSource() {
+  ditherSourceImageData = null;
+  ditherPreviewActive = false;
 }
 
 function setCanvasTitle(title) {
@@ -660,10 +700,12 @@ function updateImage() {
   const image = new Image();
   image.onload = function () {
     URL.revokeObjectURL(this.src);
+    resetDitherPreviewSource();
     if (image.width / image.height == canvas.width / canvas.height) {
       if (cropManager.isCropMode()) cropManager.exitCropMode();
       ctx.drawImage(image, 0, 0, image.width, image.height, 0, 0, canvas.width, canvas.height);
       convertDithering();
+      if (paintManager.setBaseImageData) paintManager.setBaseImageData();
     } else {
       alert(`图片宽高比例与画布不匹配，将进入裁剪模式。\n请放大图片后移动图片使其充满画布, 再点击"完成"按钮。`);
       paintManager.setActiveTool(null, '');
@@ -674,6 +716,7 @@ function updateImage() {
 }
 
 function updateCanvasSize() {
+  resetDitherPreviewSource();
   const selectedSizeName = document.getElementById('canvasSize').value;
   const selectedSize = canvasSizes.find(size => size.name === selectedSizeName);
 
@@ -696,6 +739,7 @@ function updateDitcherOptions() {
 }
 
 function rotateCanvas() {
+  resetDitherPreviewSource();
   const currentWidth = canvas.width;
   const currentHeight = canvas.height;
 
@@ -721,6 +765,7 @@ function rotateCanvas() {
 
   paintManager.clearHistory(); // Clear history as canvas size changed
   paintManager.clearElements(); // Clear stored text positions and line segments
+  if (paintManager.setBaseImageData) paintManager.setBaseImageData();
   paintManager.saveToHistory(); // Save rotated canvas to history
 }
 
@@ -728,6 +773,8 @@ function clearCanvas() {
   if (confirm('清除画布内容?')) {
     fillCanvas('white');
     paintManager.clearElements(); // Clear stored text positions and line segments
+    if (paintManager.setBaseImageData) paintManager.setBaseImageData();
+    if (paintManager.clearScheduleCache) paintManager.clearScheduleCache();
     if (cropManager.isCropMode()) cropManager.exitCropMode();
     paintManager.saveToHistory(); // Save cleared canvas to history
     return true;
@@ -735,41 +782,247 @@ function clearCanvas() {
   return false;
 }
 
+function getDitherSettings() {
+  return {
+    contrast: parseFloat(document.getElementById('ditherContrast').value),
+    brightness: parseFloat(document.getElementById('ditherBrightness').value),
+    saturation: parseFloat(document.getElementById('ditherSaturation').value),
+    alg: document.getElementById('ditherAlg').value,
+    strength: parseFloat(document.getElementById('ditherStrength').value),
+    mode: document.getElementById('ditherMode').value
+  };
+}
+
+function prepareDitherImageData(sourceImageData, settings) {
+  const imageData = new ImageData(
+    new Uint8ClampedArray(sourceImageData.data),
+    sourceImageData.width,
+    sourceImageData.height
+  );
+
+  adjustBrightnessSaturation(imageData, settings.brightness, settings.saturation);
+  adjustContrast(imageData, settings.contrast);
+  return imageData;
+}
+
+function processCanvasImageData() {
+  const settings = getDitherSettings();
+  if (!ditherPreviewActive || !ditherSourceImageData) {
+    ditherSourceImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  }
+  const sourceImageData = cloneImageData(ditherSourceImageData);
+  const imageData = prepareDitherImageData(sourceImageData, settings);
+  return processImageData(ditherImage(imageData, settings.alg, settings.strength, settings.mode), settings.mode);
+}
+
 function convertDithering() {
   paintManager.redrawTextElements();
   paintManager.redrawLineSegments();
+  if (paintManager.redrawTodoItems) paintManager.redrawTodoItems();
+  if (paintManager.drawSchedule) paintManager.drawSchedule();
 
-  const contrast = parseFloat(document.getElementById('ditherContrast').value);
-  const currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const imageData = new ImageData(
-    new Uint8ClampedArray(currentImageData.data),
-    currentImageData.width,
-    currentImageData.height
-  );
-
-  adjustContrast(imageData, contrast);
-
-  const alg = document.getElementById('ditherAlg').value;
-  const strength = parseFloat(document.getElementById('ditherStrength').value);
-  const mode = document.getElementById('ditherMode').value;
-  const processedData = processImageData(ditherImage(imageData, alg, strength, mode), mode);
-  const finalImageData = decodeProcessedData(processedData, canvas.width, canvas.height, mode);
+  const settings = getDitherSettings();
+  const processedData = processCanvasImageData();
+  const finalImageData = decodeProcessedData(processedData, canvas.width, canvas.height, settings.mode);
   ctx.putImageData(finalImageData, 0, 0);
+  ditherPreviewActive = true;
 
   paintManager.saveToHistory(); // Save dithered image to history
 }
 
 function applyDither() {
-  cropManager.finishCrop(() => convertDithering());
+  if (cropManager.isCropMode()) {
+    cropManager.finishCrop(() => {
+      resetDitherPreviewSource();
+      convertDithering();
+    });
+  } else {
+    convertDithering();
+  }
+}
+
+function setDitherAdjustment(id, value, digits) {
+  const input = document.getElementById(id);
+  const label = document.getElementById(`${id}Value`);
+  input.value = value;
+  label.innerText = parseFloat(value).toFixed(digits);
+  updateRangeFill(input);
+}
+
+function resetDitherAdjustments() {
+  setDitherAdjustment('ditherStrength', 1.0, 1);
+  setDitherAdjustment('ditherContrast', 1.2, 1);
+  setDitherAdjustment('ditherBrightness', 0, 0);
+  setDitherAdjustment('ditherSaturation', 1.2, 1);
+  applyDither();
+}
+
+function clampUiOpacity(value) {
+  const opacity = parseFloat(value);
+  if (Number.isNaN(opacity)) return DEFAULT_UI_OPACITY;
+  return Math.min(1, Math.max(0.35, opacity));
+}
+
+function applyUiOpacity(value) {
+  const opacity = clampUiOpacity(value);
+  document.documentElement.style.setProperty('--ui-opacity', opacity.toFixed(2));
+  document.documentElement.style.setProperty('--ui-footer-opacity', Math.max(0.35, opacity - 0.1).toFixed(2));
+
+  const range = document.getElementById('uiOpacityRange');
+  const label = document.getElementById('uiOpacityValue');
+  if (range) {
+    range.value = opacity.toFixed(2);
+    updateRangeFill(range);
+  }
+  if (label) label.innerText = `${Math.round(opacity * 100)}%`;
+}
+
+function loadUiOpacity() {
+  try {
+    applyUiOpacity(localStorage.getItem(UI_OPACITY_STORAGE_KEY) || DEFAULT_UI_OPACITY);
+  } catch (e) {
+    console.error(e);
+    applyUiOpacity(DEFAULT_UI_OPACITY);
+  }
+}
+
+function saveUiOpacity(value) {
+  const opacity = clampUiOpacity(value);
+  applyUiOpacity(opacity);
+  try {
+    localStorage.setItem(UI_OPACITY_STORAGE_KEY, opacity.toFixed(2));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function applyPageBackground(dataUrl) {
+  if (!dataUrl) {
+    document.body.classList.remove('custom-background');
+    document.body.style.backgroundImage = '';
+    return;
+  }
+
+  const overlay = 'linear-gradient(rgba(245, 245, 247, 0.58), rgba(245, 245, 247, 0.58))';
+  document.body.classList.add('custom-background');
+  document.body.style.backgroundImage = `${overlay}, url("${dataUrl}")`;
+}
+
+function loadPageBackground() {
+  try {
+    applyPageBackground(localStorage.getItem(PAGE_BACKGROUND_STORAGE_KEY));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function clearPageBackground() {
+  try {
+    localStorage.removeItem(PAGE_BACKGROUND_STORAGE_KEY);
+  } catch (e) {
+    console.error(e);
+  }
+  const input = document.getElementById('pageBackgroundFile');
+  if (input) input.value = '';
+  applyPageBackground('');
+}
+
+function resizeBackgroundImage(image) {
+  const scale = Math.min(1, PAGE_BACKGROUND_MAX_SIZE / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const bgCanvas = document.createElement('canvas');
+  const bgCtx = bgCanvas.getContext('2d');
+  bgCanvas.width = width;
+  bgCanvas.height = height;
+  bgCtx.fillStyle = '#ffffff';
+  bgCtx.fillRect(0, 0, width, height);
+  bgCtx.drawImage(image, 0, 0, width, height);
+  return bgCanvas.toDataURL('image/jpeg', PAGE_BACKGROUND_QUALITY);
+}
+
+function setPageBackgroundFromFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    alert('请选择图片文件作为网页背景。');
+    return;
+  }
+
+  const image = new Image();
+  image.onload = function () {
+    URL.revokeObjectURL(image.src);
+    try {
+      const dataUrl = resizeBackgroundImage(image);
+      localStorage.setItem(PAGE_BACKGROUND_STORAGE_KEY, dataUrl);
+      applyPageBackground(dataUrl);
+    } catch (e) {
+      console.error(e);
+      alert('背景图片保存失败，请换一张更小的图片。');
+    }
+  };
+  image.onerror = function () {
+    URL.revokeObjectURL(image.src);
+    alert('背景图片读取失败，请换一张图片。');
+  };
+  image.src = URL.createObjectURL(file);
+}
+
+function setActiveGlobalNav(link) {
+  document.querySelectorAll('.global-nav a').forEach((item) => item.classList.remove('active'));
+  if (link) link.classList.add('active');
+}
+
+function initGlobalNavActive() {
+  const links = document.querySelectorAll('.global-nav a');
+  links.forEach((link) => {
+    link.addEventListener('click', () => setActiveGlobalNav(link));
+  });
+
+  const current = Array.from(links).find((link) => link.getAttribute('href') === window.location.hash);
+  setActiveGlobalNav(current || document.querySelector('.global-nav .global-brand'));
+}
+
+function updateRangeFill(range) {
+  if (!range) return;
+  const min = parseFloat(range.min || '0');
+  const max = parseFloat(range.max || '100');
+  const value = parseFloat(range.value || '0');
+  const percent = max === min ? 0 : ((value - min) / (max - min)) * 100;
+  range.style.setProperty('--range-fill', `${Math.max(0, Math.min(100, percent))}%`);
+}
+
+function initRangeFill() {
+  document.querySelectorAll('input[type="range"]').forEach((range) => {
+    updateRangeFill(range);
+    range.addEventListener('input', () => updateRangeFill(range));
+  });
 }
 
 function initEventHandlers() {
+  initGlobalNavActive();
+  initRangeFill();
+  document.getElementById("resetDitherAdjustments").addEventListener("click", resetDitherAdjustments);
+  document.getElementById("pageBackgroundFile").addEventListener("change", (e) => {
+    setPageBackgroundFromFile(e.target.files[0]);
+  });
+  document.getElementById("clearPageBackground").addEventListener("click", clearPageBackground);
+  document.getElementById("uiOpacityRange").addEventListener("input", (e) => {
+    saveUiOpacity(e.target.value);
+  });
   document.getElementById("ditherStrength").addEventListener("input", (e) => {
     document.getElementById("ditherStrengthValue").innerText = parseFloat(e.target.value).toFixed(1);
     applyDither();
   });
   document.getElementById("ditherContrast").addEventListener("input", (e) => {
     document.getElementById("ditherContrastValue").innerText = parseFloat(e.target.value).toFixed(1);
+    applyDither();
+  });
+  document.getElementById("ditherBrightness").addEventListener("input", (e) => {
+    document.getElementById("ditherBrightnessValue").innerText = parseFloat(e.target.value).toFixed(0);
+    applyDither();
+  });
+  document.getElementById("ditherSaturation").addEventListener("input", (e) => {
+    document.getElementById("ditherSaturationValue").innerText = parseFloat(e.target.value).toFixed(1);
     applyDither();
   });
 }
@@ -801,10 +1054,12 @@ document.body.onload = () => {
 
   paintManager = new PaintManager(canvas, ctx);
   cropManager = new CropManager(canvas, ctx, paintManager);
+  if (paintManager.setBaseImageData) paintManager.setBaseImageData();
 
   paintManager.initPaintTools();
   cropManager.initCropTools();
   initEventHandlers();
   updateButtonStatus();
   checkDebugMode();
+  loadPageBackground();
 }

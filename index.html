@@ -1,18 +1,32 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>墨水屏日历</title>
 	<link rel="shortcut icon" type="image/png" href="favicon.png">
-	<link rel="stylesheet" href="css/main.css?v=20251109">
+	<link rel="stylesheet" href="css/main.css?v=2026070716">
 </head>
 
 <body>
+	<nav class="global-nav" aria-label="全局导航">
+		<div class="global-nav-inner">
+			<a class="global-brand" href="#">EPD</a>
+			<a href="#bluetooth-panel">蓝牙</a>
+			<a href="#device-panel">设备</a>
+			<a href="#image-panel">传图</a>
+		</div>
+	</nav>
+	<div class="sub-nav-frosted">
+		<div class="sub-nav-inner">
+			<span class="sub-nav-title">墨水屏日历</span>
+			<span class="sub-nav-meta">3.7BWRY · Web Bluetooth</span>
+		</div>
+	</div>
 	<div class="main">
 		<h3>墨水屏日历</h3>
-		<fieldset>
+		<fieldset id="bluetooth-panel">
 			<legend>蓝牙连接</legend>
 			<div class="flex-container">
 				<div class="flex-group">
@@ -20,7 +34,10 @@
 					<button id="reconnectbutton" type="button" class="secondary" onclick="reConnect()">重连</button>
 					<button type="button" class="secondary" onclick="clearLog()">清空日志</button>
 				</div>
-				<div class="flex-group right debug">
+				<div class="flex-group debug">
+					<label for="epdpins">引脚</label>
+					<input id="epdpins" type="text" value="">
+					<button id="setDriverbutton" type="button" class="primary" onclick="setDriver()">确定</button>
 					<label for="epddriver">驱动</label>
 					<select id="epddriver" onchange="updateDitcherOptions()">
 						<option value="01" data-color="blackWhiteColor" data-size="4.2_400_300">4.2寸 (黑白, UC8176)</option>
@@ -34,7 +51,7 @@
 						<option value="12" data-color="threeColor" data-size="3.7_416_240">3.7BWR(三色，LG 3.7寸）</option>
 						<option value="10" data-color="fourColor" data-size="3.98_768_552">3.98寸（四色，SE0398NZ07A0）</option>
 						<option value="11" data-color="fourColor" data-size="3.98_768_552">3.98寸（四色，SE0398NZ07A1）</option>
-						<option value="13" data-color="fourColor" data-size="3.98_800_600">3.98寸（四色，SE0398NZ07-FNG-A1）</option>
+						<option value="13" data-color="fourColor" data-size="3.98_768_552">3.98寸（四色，SE0398NZ07-FNG-A1）</option>
 						<option value="14" data-color="fourColor" data-size="3.87_800_552">3.87寸（四色，KEGM038701E01-J665）</option>
 						<option value="06" data-color="blackWhiteColor" data-size="7.5_800_480">7.5寸 (黑白, UC8179)</option>
 						<option value="07" data-color="threeColor" data-size="7.5_800_480">7.5寸 (三色, UC8179)</option>
@@ -45,18 +62,23 @@
 						<option value="0b" data-color="threeColor" data-size="7.5_880_528">7.5寸HD (三色, SSD1677)</option>
 					</select>
 				</div>
-				<div class="flex-group debug">
-					<label for="epdpins">引脚</label>
-					<input id="epdpins" type="text" value="">
-					<button id="setDriverbutton" type="button" class="primary" onclick="setDriver()">确定</button>
-				</div>
 			</div>
 			<div class="log-container" id="log"></div>
 		</fieldset>
-		<fieldset>
+		<fieldset id="device-panel">
 			<legend>设备控制</legend>
 			<div class="flex-container">
 				<div class="flex-group">
+					<label for="weekStart">星期第一天:</label>
+					<select id="weekStart">
+						<option value="1" selected>周一</option>
+						<option value="2">周二</option>
+						<option value="3">周三</option>
+						<option value="4">周四</option>
+						<option value="5">周五</option>
+						<option value="6">周六</option>
+						<option value="0">周日</option>
+					</select>
 					<button id="calendarmodebutton" type="button" class="primary" onclick="syncTime(1)">日历模式</button>
 					<button id="clockmodebutton" type="button" class="primary" onclick="syncTime(2)">时钟模式</button>
 					<button id="clearscreenbutton" type="button" class="secondary" onclick="clearScreen()">清除屏幕</button>
@@ -67,9 +89,10 @@
 				</div>
 			</div>
 		</fieldset>
-		<fieldset>
+		<fieldset id="image-panel">
 			<legend>蓝牙传图</legend>
-			<div class="flex-container">
+			<div class="flex-container file-picker-row">
+				<label for="imageFile" class="file-picker-title">图片文件:</label>
 				<input type="file" id="imageFile" accept=".png,.jpg,.bmp,.webp,.jpeg" onchange="updateImage()">
 			</div>
 			<div class="flex-container options">
@@ -122,7 +145,10 @@
 						<option value="jarvis">Jarvis-Judice-Ninke</option>
 						<option value="none">无抖动</option>
 					</select>
+					<button id="resetDitherAdjustments" type="button" class="secondary">还原默认</button>
 				</div>
+			</div>
+			<div class="flex-container options dither-adjust-row">
 				<div class="flex-group">
 					<label for="ditherStrength">抖动强度:</label>
 					<input type="range" min="0" max="5" step="0.1" value="1.0" id="ditherStrength">
@@ -132,6 +158,16 @@
 					<label for="ditherContrast">对比度:</label>
 					<input type="range" min="0.5" max="2" step="0.1" value="1.2" id="ditherContrast">
 					<label id="ditherContrastValue">1.2</label>
+				</div>
+				<div class="flex-group">
+					<label for="ditherBrightness">亮度:</label>
+					<input type="range" min="-80" max="80" step="1" value="0" id="ditherBrightness">
+					<label id="ditherBrightnessValue">0</label>
+				</div>
+				<div class="flex-group">
+					<label for="ditherSaturation">饱和度:</label>
+					<input type="range" min="0" max="2.5" step="0.1" value="1.2" id="ditherSaturation">
+					<label id="ditherSaturationValue">1.2</label>
 				</div>
 			</div>
 			<div class="flex-container options">
@@ -159,6 +195,8 @@
 						<button id="brush-mode" title="画笔" class="tool-button">✏️</button>
 						<button id="eraser-mode" title="橡皮擦" class="tool-button">🧽</button>
 						<button id="text-mode" title="添加文字" class="tool-button">T</button>
+						<button id="todo-mode" title="待办事项" class="tool-button">☐</button>
+						<button id="schedule-mode" title="课表" class="tool-button">📅</button>
 						<button id="undo-btn" title="撤销 (Ctrl+Z)" class="tool-button hide">↶</button>
 						<button id="redo-btn" title="重做 (Ctrl+Y)" class="tool-button hide">↷</button>
 					</div>
@@ -176,6 +214,7 @@
 						</select>
 						<label for="brush-size">粗细:</label>
 						<input type="number" id="brush-size" value="2" min="1" max="100">
+						<input type="range" id="brush-size-range" value="2" min="1" max="100">
 					</div>
 				</div>
 				<div class="flex-container canvas-tools">
@@ -214,12 +253,79 @@
 						</select>
 						<label for="font-size">大小:</label>
 						<input type="number" id="font-size" value="16" min="1" max="100">
+						<input type="range" id="font-size-range" value="16" min="1" max="100">
 					</div>
 					<div class="flex-group text-tools">
 						<input type="text" id="text-input" placeholder="输入文字" style="width:150px">
 						<button id="text-bold" title="粗体">B</button>
 						<button id="text-italic" title="斜体">I</button>
 						<button id="add-text-btn" class="primary">添加文字</button>
+					</div>
+					<div class="flex-group todo-tools">
+						<label for="todo-font-family">字体:</label>
+						<select id="todo-font-family">
+							<option value="SimHei" selected>黑体</option>
+							<option value="Microsoft Yahei">微软雅黑</option>
+							<option value="SimSun">宋体</option>
+							<option value="KaiTi">楷体</option>
+							<option value="Arial">Arial</option>
+						</select>
+						<label for="todo-font-size">大小:</label>
+						<input type="number" id="todo-font-size" value="16" min="8" max="80">
+						<input type="range" id="todo-font-size-range" value="16" min="8" max="80">
+					</div>
+					<div class="flex-group todo-tools">
+						<input type="text" id="todo-input" placeholder="输入待办事项" style="width:170px">
+						<select id="todo-color">
+							<option value="#000000">黑色</option>
+							<option value="#FF0000">红色</option>
+							<option value="#FFFF00">黄色</option>
+							<option value="#00FF00">绿色</option>
+							<option value="#0000FF">蓝色</option>
+						</select>
+						<button id="todo-bold" title="粗体">B</button>
+						<button id="todo-italic" title="斜体">I</button>
+						<button id="toggle-todo-delete-btn" title="显示/隐藏删除按钮" class="primary">删除键</button>
+						<button id="add-todo-btn" class="primary">添加待办</button>
+					</div>
+					<div class="flex-group schedule-tools">
+						<label for="schedule-days">天数:</label>
+						<input type="number" id="schedule-days" value="5" min="1" max="7">
+						<label for="schedule-classes">节数:</label>
+						<input type="number" id="schedule-classes" value="6" min="1" max="12">
+						<label for="schedule-font-family">字体:</label>
+						<select id="schedule-font-family">
+							<option value="SimHei" selected>黑体</option>
+							<option value="Microsoft Yahei">微软雅黑</option>
+							<option value="SimSun">宋体</option>
+							<option value="KaiTi">楷体</option>
+							<option value="Arial">Arial</option>
+						</select>
+						<label for="schedule-font-size">字号:</label>
+						<input type="number" id="schedule-font-size" value="12" min="6" max="32">
+						<button id="schedule-font-decrease-btn" title="减小字号">-</button>
+						<button id="schedule-font-increase-btn" title="增大字号">+</button>
+						<select id="schedule-color">
+							<option value="#000000">黑色</option>
+							<option value="#FF0000">红色</option>
+							<option value="#FFFF00">黄色</option>
+							<option value="#0000FF">蓝色</option>
+						</select>
+						<button id="toggle-schedule-cell-indicator-btn" title="显示/隐藏选中标记" class="primary">标记</button>
+						<button id="create-schedule-btn" class="primary">生成课表</button>
+					</div>
+					<div class="flex-group schedule-tools">
+						<button id="schedule-zoom-in-btn" title="放大">+</button>
+						<button id="schedule-zoom-out-btn" title="缩小">-</button>
+						<button id="schedule-move-left-btn" title="左移">⇦</button>
+						<button id="schedule-move-up-btn" title="上移">⇧</button>
+						<button id="schedule-move-down-btn" title="下移">⇩</button>
+						<button id="schedule-move-right-btn" title="右移">⇨</button>
+					</div>
+					<div class="flex-group schedule-tools schedule-input-tools">
+						<textarea id="schedule-input" placeholder="输入课程，支持换行" rows="2" style="width:220px"></textarea>
+						<button id="schedule-input-confirm-btn" class="primary">确定</button>
+						<button id="schedule-input-cancel-btn" class="secondary">取消</button>
 					</div>
 					<div class="flex-group crop-tools">
 						<button id="crop-zoom-in" title="放大" class="secondary">+</button>
@@ -234,7 +340,15 @@
 			</div>
 		</fieldset>
 		<div class="footer">
-			<span class="copy">&copy; 2025 tsl0922.</span>
+			<span class="copy">&copy;Source from tsl0922, modify by JCF 2026 | 更新时间: 2026-07-07</span>
+			<span class="background-settings">
+				<label for="pageBackgroundFile">网页背景:</label>
+				<input type="file" id="pageBackgroundFile" accept=".png,.jpg,.jpeg,.webp,.bmp">
+				<label for="uiOpacityRange">UI透明度:</label>
+				<input type="range" id="uiOpacityRange" min="0.35" max="1" step="0.01" value="0.88">
+				<span id="uiOpacityValue" class="opacity-value">88%</span>
+				<button id="clearPageBackground" type="button" class="secondary">清除背景</button>
+			</span>
 			<span class="links">
 				<a href="https://github.com/tsl0922/EPD-nRF5">Github</a>
 				<a href="https://qm.qq.com/q/SckzhfDxuu" onclick="return confirm('本群是此开源固件作者的技术交流群\n如果你购买了成品，请找卖家提供售后！')">交流群</a>
@@ -242,10 +356,10 @@
 			</span>
 		</div>
 	</div>
-	<script type="text/javascript" src="js/dithering.js?v=20251109"></script>
-	<script type="text/javascript" src="js/paint.js?v=20251109"></script>
+	<script type="text/javascript" src="js/dithering.js?v=2026070702"></script>
+	<script type="text/javascript" src="js/paint.js?v=2026070705"></script>
 	<script type="text/javascript" src="js/crop.js?v=20251109"></script>
-	<script type="text/javascript" src="js/main.js?v=2026070602"></script>
+	<script type="text/javascript" src="js/main.js?v=2026070709"></script>
 </body>
 
 </html>
