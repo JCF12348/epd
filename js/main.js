@@ -9,6 +9,7 @@ let ditherSourceImageData = null;
 let ditherPreviewActive = false;
 
 const PAGE_BACKGROUND_STORAGE_KEY = 'epdCustomPageBackground';
+const PAGE_BACKGROUND_SETTINGS_STORAGE_KEY = 'epdCustomPageBackgroundSettings';
 const UI_OPACITY_STORAGE_KEY = 'epdUiOpacity';
 const GLASS_CLARITY_STORAGE_KEY = 'epdGlassClarity';
 const PAGE_BACKGROUND_MAX_SIZE = 1920;
@@ -16,6 +17,19 @@ const PAGE_BACKGROUND_QUALITY = 0.82;
 const DEFAULT_UI_OPACITY = 0.88;
 const DEFAULT_GLASS_CLARITY = 0;
 const MAX_GLASS_BLUR = 24;
+const DEFAULT_PAGE_BACKGROUND_SETTINGS = {
+  fit: 'contain',
+  zoom: 1,
+  offsetX: 0,
+  offsetY: 0,
+  rotate: 0,
+  flipX: false,
+  flipY: false,
+  brightness: 1,
+  contrast: 1,
+  saturation: 1,
+  mask: 0.22
+};
 
 const EPD_SERVICE_UUID = '62750001-d828-918d-fb46-b6c11c675aec';
 const EPD_CHARACTERISTIC_UUID = '62750002-d828-918d-fb46-b6c11c675aec';
@@ -952,16 +966,141 @@ function saveGlassClarity(value) {
   }
 }
 
+function clampNumber(value, min, max, fallback) {
+  const number = parseFloat(value);
+  if (Number.isNaN(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function normalizePageBackgroundSettings(settings) {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  const fit = ['cover', 'contain', '100% 100%'].includes(source.fit) ? source.fit : DEFAULT_PAGE_BACKGROUND_SETTINGS.fit;
+  return {
+    fit,
+    zoom: clampNumber(source.zoom, 0.5, 3, DEFAULT_PAGE_BACKGROUND_SETTINGS.zoom),
+    offsetX: clampNumber(source.offsetX, -40, 40, DEFAULT_PAGE_BACKGROUND_SETTINGS.offsetX),
+    offsetY: clampNumber(source.offsetY, -40, 40, DEFAULT_PAGE_BACKGROUND_SETTINGS.offsetY),
+    rotate: clampNumber(source.rotate, -180, 180, DEFAULT_PAGE_BACKGROUND_SETTINGS.rotate),
+    flipX: source.flipX === true,
+    flipY: source.flipY === true,
+    brightness: clampNumber(source.brightness, 0.4, 1.6, DEFAULT_PAGE_BACKGROUND_SETTINGS.brightness),
+    contrast: clampNumber(source.contrast, 0.5, 1.8, DEFAULT_PAGE_BACKGROUND_SETTINGS.contrast),
+    saturation: clampNumber(source.saturation, 0, 2, DEFAULT_PAGE_BACKGROUND_SETTINGS.saturation),
+    mask: clampNumber(source.mask, 0, 0.7, DEFAULT_PAGE_BACKGROUND_SETTINGS.mask)
+  };
+}
+
+function setRangeControl(rangeId, labelId, value, formatter) {
+  const range = document.getElementById(rangeId);
+  const label = document.getElementById(labelId);
+  if (range) {
+    range.value = value;
+    updateRangeFill(range);
+  }
+  if (label) label.innerText = formatter(value);
+}
+
+function syncPageBackgroundSettingsControls(settings) {
+  setRangeControl('bgZoomRange', 'bgZoomValue', settings.zoom, (value) => `${Math.round(value * 100)}%`);
+  setRangeControl('bgOffsetXRange', 'bgOffsetXValue', settings.offsetX, (value) => `${Math.round(value)}%`);
+  setRangeControl('bgOffsetYRange', 'bgOffsetYValue', settings.offsetY, (value) => `${Math.round(value)}%`);
+  setRangeControl('bgRotateRange', 'bgRotateValue', settings.rotate, (value) => `${Math.round(value)}°`);
+  setRangeControl('bgBrightnessRange', 'bgBrightnessValue', settings.brightness, (value) => `${Math.round(value * 100)}%`);
+  setRangeControl('bgContrastRange', 'bgContrastValue', settings.contrast, (value) => `${Math.round(value * 100)}%`);
+  setRangeControl('bgSaturationRange', 'bgSaturationValue', settings.saturation, (value) => `${Math.round(value * 100)}%`);
+  setRangeControl('bgMaskRange', 'bgMaskValue', settings.mask, (value) => `${Math.round(value * 100)}%`);
+
+  document.querySelectorAll('[data-bg-fit]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.bgFit === settings.fit);
+  });
+  document.querySelectorAll('[data-bg-toggle]').forEach((button) => {
+    button.classList.toggle('active', settings[button.dataset.bgToggle] === true);
+  });
+}
+
+function applyPageBackgroundSettings(settings) {
+  const normalized = normalizePageBackgroundSettings(settings);
+  document.documentElement.style.setProperty('--page-bg-fit', normalized.fit);
+  document.documentElement.style.setProperty(
+    '--page-bg-transform',
+    `translate(${normalized.offsetX}%, ${normalized.offsetY}%) scale(${normalized.flipX ? -normalized.zoom : normalized.zoom}, ${normalized.flipY ? -normalized.zoom : normalized.zoom}) rotate(${normalized.rotate}deg)`
+  );
+  document.documentElement.style.setProperty(
+    '--page-bg-filter',
+    `brightness(${normalized.brightness}) contrast(${normalized.contrast}) saturate(${normalized.saturation})`
+  );
+  document.documentElement.style.setProperty('--page-bg-overlay-opacity', normalized.mask.toFixed(2));
+  syncPageBackgroundSettingsControls(normalized);
+  return normalized;
+}
+
+function savePageBackgroundSettings(settings) {
+  const normalized = applyPageBackgroundSettings(settings);
+  try {
+    localStorage.setItem(PAGE_BACKGROUND_SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
+  } catch (e) {
+    console.error(e);
+  }
+  return normalized;
+}
+
+function loadPageBackgroundSettings() {
+  let settings = DEFAULT_PAGE_BACKGROUND_SETTINGS;
+  try {
+    const stored = localStorage.getItem(PAGE_BACKGROUND_SETTINGS_STORAGE_KEY);
+    if (stored) settings = JSON.parse(stored);
+  } catch (e) {
+    console.error(e);
+  }
+  return applyPageBackgroundSettings(settings);
+}
+
+function updatePageBackgroundSetting(key, value) {
+  const current = readPageBackgroundSettingsFromControls();
+  current[key] = value;
+  savePageBackgroundSettings(current);
+}
+
+function readPageBackgroundSettingsFromControls() {
+  const activeFit = document.querySelector('[data-bg-fit].active');
+  return normalizePageBackgroundSettings({
+    fit: activeFit ? activeFit.dataset.bgFit : DEFAULT_PAGE_BACKGROUND_SETTINGS.fit,
+    flipX: document.querySelector('[data-bg-toggle="flipX"]')?.classList.contains('active'),
+    flipY: document.querySelector('[data-bg-toggle="flipY"]')?.classList.contains('active'),
+    zoom: document.getElementById('bgZoomRange')?.value,
+    offsetX: document.getElementById('bgOffsetXRange')?.value,
+    offsetY: document.getElementById('bgOffsetYRange')?.value,
+    rotate: document.getElementById('bgRotateRange')?.value,
+    brightness: document.getElementById('bgBrightnessRange')?.value,
+    contrast: document.getElementById('bgContrastRange')?.value,
+    saturation: document.getElementById('bgSaturationRange')?.value,
+    mask: document.getElementById('bgMaskRange')?.value
+  });
+}
+
+function openBackgroundSettings() {
+  const modal = document.getElementById('backgroundSettingsModal');
+  if (modal) modal.hidden = false;
+}
+
+function closeBackgroundSettings() {
+  const modal = document.getElementById('backgroundSettingsModal');
+  if (modal) modal.hidden = true;
+}
+
+function resetBackgroundAdjustments() {
+  savePageBackgroundSettings(DEFAULT_PAGE_BACKGROUND_SETTINGS);
+}
+
 function applyPageBackground(dataUrl) {
   if (!dataUrl) {
     document.body.classList.remove('custom-background');
-    document.body.style.backgroundImage = '';
+    document.documentElement.style.setProperty('--page-bg-image', 'none');
     return;
   }
 
-  const overlay = 'linear-gradient(rgba(245, 245, 247, 0.58), rgba(245, 245, 247, 0.58))';
   document.body.classList.add('custom-background');
-  document.body.style.backgroundImage = `${overlay}, url("${dataUrl}")`;
+  document.documentElement.style.setProperty('--page-bg-image', `url("${dataUrl}")`);
 }
 
 function loadPageBackground() {
@@ -986,6 +1125,7 @@ function clearPageBackground() {
 function resetBackgroundDefaults() {
   try {
     localStorage.removeItem(PAGE_BACKGROUND_STORAGE_KEY);
+    localStorage.removeItem(PAGE_BACKGROUND_SETTINGS_STORAGE_KEY);
     localStorage.removeItem(UI_OPACITY_STORAGE_KEY);
     localStorage.removeItem(GLASS_CLARITY_STORAGE_KEY);
   } catch (e) {
@@ -994,6 +1134,7 @@ function resetBackgroundDefaults() {
   const input = document.getElementById('pageBackgroundFile');
   if (input) input.value = '';
   applyPageBackground('');
+  applyPageBackgroundSettings(DEFAULT_PAGE_BACKGROUND_SETTINGS);
   applyUiOpacity(DEFAULT_UI_OPACITY);
   applyGlassClarity(DEFAULT_GLASS_CLARITY);
 }
@@ -1025,6 +1166,7 @@ function setPageBackgroundFromFile(file) {
     try {
       const dataUrl = resizeBackgroundImage(image);
       localStorage.setItem(PAGE_BACKGROUND_STORAGE_KEY, dataUrl);
+      savePageBackgroundSettings(DEFAULT_PAGE_BACKGROUND_SETTINGS);
       applyPageBackground(dataUrl);
     } catch (e) {
       console.error(e);
@@ -1076,6 +1218,35 @@ function initEventHandlers() {
   document.getElementById("resetDitherAdjustments").addEventListener("click", resetDitherAdjustments);
   document.getElementById("pageBackgroundFile").addEventListener("change", (e) => {
     setPageBackgroundFromFile(e.target.files[0]);
+  });
+  document.getElementById("openBackgroundSettings").addEventListener("click", openBackgroundSettings);
+  document.getElementById("closeBackgroundSettings").addEventListener("click", closeBackgroundSettings);
+  document.getElementById("doneBackgroundSettings").addEventListener("click", closeBackgroundSettings);
+  document.getElementById("resetBackgroundAdjustments").addEventListener("click", resetBackgroundAdjustments);
+  document.getElementById("backgroundSettingsModal").addEventListener("click", (e) => {
+    if (e.target.id === 'backgroundSettingsModal') closeBackgroundSettings();
+  });
+  document.querySelectorAll('[data-bg-fit]').forEach((button) => {
+    button.addEventListener('click', () => updatePageBackgroundSetting('fit', button.dataset.bgFit));
+  });
+  document.querySelectorAll('[data-bg-toggle]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const current = readPageBackgroundSettingsFromControls();
+      current[button.dataset.bgToggle] = !current[button.dataset.bgToggle];
+      savePageBackgroundSettings(current);
+    });
+  });
+  [
+    ['bgZoomRange', 'zoom'],
+    ['bgOffsetXRange', 'offsetX'],
+    ['bgOffsetYRange', 'offsetY'],
+    ['bgRotateRange', 'rotate'],
+    ['bgBrightnessRange', 'brightness'],
+    ['bgContrastRange', 'contrast'],
+    ['bgSaturationRange', 'saturation'],
+    ['bgMaskRange', 'mask']
+  ].forEach(([rangeId, key]) => {
+    document.getElementById(rangeId).addEventListener('input', (e) => updatePageBackgroundSetting(key, e.target.value));
   });
   document.getElementById("clearPageBackground").addEventListener("click", clearPageBackground);
   document.getElementById("resetBackgroundDefaults").addEventListener("click", resetBackgroundDefaults);
@@ -1139,5 +1310,6 @@ document.body.onload = () => {
   checkDebugMode();
   loadUiOpacity();
   loadGlassClarity();
+  loadPageBackgroundSettings();
   loadPageBackground();
 }
