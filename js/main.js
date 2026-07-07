@@ -10,9 +10,12 @@ let ditherPreviewActive = false;
 
 const PAGE_BACKGROUND_STORAGE_KEY = 'epdCustomPageBackground';
 const UI_OPACITY_STORAGE_KEY = 'epdUiOpacity';
+const GLASS_CLARITY_STORAGE_KEY = 'epdGlassClarity';
 const PAGE_BACKGROUND_MAX_SIZE = 1920;
 const PAGE_BACKGROUND_QUALITY = 0.82;
 const DEFAULT_UI_OPACITY = 0.88;
+const DEFAULT_GLASS_CLARITY = 0;
+const MAX_GLASS_BLUR = 24;
 
 const EPD_SERVICE_UUID = '62750001-d828-918d-fb46-b6c11c675aec';
 const EPD_CHARACTERISTIC_UUID = '62750002-d828-918d-fb46-b6c11c675aec';
@@ -860,13 +863,16 @@ function resetDitherAdjustments() {
 function clampUiOpacity(value) {
   const opacity = parseFloat(value);
   if (Number.isNaN(opacity)) return DEFAULT_UI_OPACITY;
-  return Math.min(1, Math.max(0.35, opacity));
+  return Math.min(1, Math.max(0, opacity));
 }
 
 function applyUiOpacity(value) {
   const opacity = clampUiOpacity(value);
   document.documentElement.style.setProperty('--ui-opacity', opacity.toFixed(2));
-  document.documentElement.style.setProperty('--ui-footer-opacity', Math.max(0.35, opacity - 0.1).toFixed(2));
+  document.documentElement.style.setProperty('--ui-footer-opacity', Math.max(0, opacity - 0.1).toFixed(2));
+  document.documentElement.style.setProperty('--ui-border-opacity', opacity.toFixed(2));
+  document.documentElement.style.setProperty('--ui-border-soft-opacity', (opacity * 0.08).toFixed(3));
+  document.documentElement.style.setProperty('--ui-blue-border-soft-opacity', (opacity * 0.16).toFixed(3));
 
   const range = document.getElementById('uiOpacityRange');
   const label = document.getElementById('uiOpacityValue');
@@ -891,6 +897,45 @@ function saveUiOpacity(value) {
   applyUiOpacity(opacity);
   try {
     localStorage.setItem(UI_OPACITY_STORAGE_KEY, opacity.toFixed(2));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function clampGlassClarity(value) {
+  const clarity = parseFloat(value);
+  if (Number.isNaN(clarity)) return DEFAULT_GLASS_CLARITY;
+  return Math.min(1, Math.max(0, clarity));
+}
+
+function applyGlassClarity(value) {
+  const clarity = clampGlassClarity(value);
+  const blur = (1 - clarity) * MAX_GLASS_BLUR;
+  document.documentElement.style.setProperty('--glass-blur-size', `${blur.toFixed(1)}px`);
+
+  const range = document.getElementById('glassClarityRange');
+  const label = document.getElementById('glassClarityValue');
+  if (range) {
+    range.value = clarity.toFixed(2);
+    updateRangeFill(range);
+  }
+  if (label) label.innerText = `${Math.round(clarity * 100)}%`;
+}
+
+function loadGlassClarity() {
+  try {
+    applyGlassClarity(localStorage.getItem(GLASS_CLARITY_STORAGE_KEY) || DEFAULT_GLASS_CLARITY);
+  } catch (e) {
+    console.error(e);
+    applyGlassClarity(DEFAULT_GLASS_CLARITY);
+  }
+}
+
+function saveGlassClarity(value) {
+  const clarity = clampGlassClarity(value);
+  applyGlassClarity(clarity);
+  try {
+    localStorage.setItem(GLASS_CLARITY_STORAGE_KEY, clarity.toFixed(2));
   } catch (e) {
     console.error(e);
   }
@@ -1009,6 +1054,9 @@ function initEventHandlers() {
   document.getElementById("uiOpacityRange").addEventListener("input", (e) => {
     saveUiOpacity(e.target.value);
   });
+  document.getElementById("glassClarityRange").addEventListener("input", (e) => {
+    saveGlassClarity(e.target.value);
+  });
   document.getElementById("ditherStrength").addEventListener("input", (e) => {
     document.getElementById("ditherStrengthValue").innerText = parseFloat(e.target.value).toFixed(1);
     applyDither();
@@ -1061,5 +1109,7 @@ document.body.onload = () => {
   initEventHandlers();
   updateButtonStatus();
   checkDebugMode();
+  loadUiOpacity();
+  loadGlassClarity();
   loadPageBackground();
 }

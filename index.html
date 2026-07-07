@@ -6,7 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>墨水屏日历</title>
 	<link rel="shortcut icon" type="image/png" href="favicon.png">
-	<link rel="stylesheet" href="css/main.css?v=2026070717">
+	<link rel="stylesheet" href="css/main.css?v=2026070719">
 </head>
 
 <body>
@@ -344,9 +344,18 @@
 			<span class="background-settings">
 				<label for="pageBackgroundFile">网页背景:</label>
 				<input type="file" id="pageBackgroundFile" accept=".png,.jpg,.jpeg,.webp,.bmp">
-				<label for="uiOpacityRange">UI透明度:</label>
-				<input type="range" id="uiOpacityRange" min="0.35" max="1" step="0.01" value="0.88">
-				<span id="uiOpacityValue" class="opacity-value">88%</span>
+				<span class="background-slider-group">
+					<span class="background-slider-row">
+						<label for="uiOpacityRange">UI透明度:</label>
+						<input type="range" id="uiOpacityRange" min="0" max="1" step="0.01" value="0.88">
+						<span id="uiOpacityValue" class="opacity-value">88%</span>
+					</span>
+					<span class="background-slider-row">
+						<label for="glassClarityRange">背景清晰度:</label>
+						<input type="range" id="glassClarityRange" min="0" max="1" step="0.01" value="0">
+						<span id="glassClarityValue" class="opacity-value">0%</span>
+					</span>
+				</span>
 				<button id="clearPageBackground" type="button" class="secondary">清除背景</button>
 			</span>
 			<span class="links">
@@ -359,7 +368,7 @@
 	<script type="text/javascript" src="js/dithering.js?v=2026070702"></script>
 	<script type="text/javascript" src="js/paint.js?v=2026070705"></script>
 	<script type="text/javascript" src="js/crop.js?v=20251109"></script>
-	<script type="text/javascript" src="js/main.js?v=2026070712"></script>
+	<script type="text/javascript" src="js/main.js?v=2026070714"></script>
 </body>
 
 </html>
