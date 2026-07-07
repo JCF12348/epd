@@ -628,7 +628,7 @@ function setStatus(statusText) {
   document.getElementById("status").innerHTML = statusText;
 }
 
-function addLog(logTXT, action = '') {
+function addLog(logTXT, action = '', type = '') {
   const log = document.getElementById("log");
   const now = new Date();
   const time = String(now.getHours()).padStart(2, '0') + ":" +
@@ -637,7 +637,7 @@ function addLog(logTXT, action = '') {
 
   const logEntry = document.createElement('div');
   const timeSpan = document.createElement('span');
-  logEntry.className = 'log-line';
+  logEntry.className = type ? 'log-line ' + type : 'log-line';
   timeSpan.className = 'time';
   timeSpan.textContent = time;
   logEntry.appendChild(timeSpan);
@@ -1036,7 +1036,7 @@ function checkDebugMode() {
     document.body.classList.add('dark-mode');
     link.innerHTML = '正常模式';
     link.setAttribute('href', window.location.pathname);
-    addLog("注意：开发模式功能已开启！不懂请不要随意修改，否则后果自负！");
+    addLog("注意：开发模式功能已开启！错误设置可能导致连接异常或显示异常，不懂请不要随意修改，否则后果自负！", "⚠", "warning");
   } else {
     document.body.classList.remove('dark-mode');
     link.innerHTML = '开发模式';

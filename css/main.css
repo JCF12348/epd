@@ -532,6 +532,21 @@ input[type=range]:focus-visible::-moz-range-thumb {
     padding: 2px 0;
 }
 
+.log-container .log-line.warning {
+    margin: 6px 0;
+    padding: 10px 12px;
+    border: 1px solid rgba(245, 158, 11, 0.34);
+    border-radius: 14px;
+    color: #7c4a03;
+    background: rgba(255, 243, 205, 0.82);
+    font-weight: 600;
+}
+
+.log-container .log-line.warning .time,
+.log-container .log-line.warning .action {
+    color: #b45309;
+}
+
 .log-container .time,
 .log-container .action {
     display: inline-block;
