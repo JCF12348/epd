@@ -735,10 +735,21 @@ function updateDitcherOptions() {
   const colorMode = selectedOption.getAttribute('data-color');
   const canvasSize = selectedOption.getAttribute('data-size');
 
+  updateDriverMeta(selectedOption);
   if (colorMode) document.getElementById('ditherMode').value = colorMode;
   if (canvasSize) document.getElementById('canvasSize').value = canvasSize;
 
   updateCanvasSize(); // always update image
+}
+
+function updateDriverMeta(option) {
+  const meta = document.getElementById('driverMeta');
+  if (!meta) return;
+
+  const epdDriverSelect = document.getElementById('epddriver');
+  const selectedOption = option || epdDriverSelect.options[epdDriverSelect.selectedIndex];
+  const driverName = selectedOption ? selectedOption.textContent.trim() : 'EPD';
+  meta.textContent = `${driverName} · Web Bluetooth`;
 }
 
 function rotateCanvas() {
@@ -1061,6 +1072,7 @@ function initRangeFill() {
 function initEventHandlers() {
   initGlobalNavActive();
   initRangeFill();
+  updateDriverMeta();
   document.getElementById("resetDitherAdjustments").addEventListener("click", resetDitherAdjustments);
   document.getElementById("pageBackgroundFile").addEventListener("change", (e) => {
     setPageBackgroundFromFile(e.target.files[0]);
