@@ -354,12 +354,14 @@ label {
 }
 
 .background-slider-group,
+.background-button-group,
 .background-slider-row {
     display: flex;
     align-items: center;
 }
 
-.background-slider-group {
+.background-slider-group,
+.background-button-group {
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
@@ -367,6 +369,11 @@ label {
 
 .background-slider-row {
     gap: 10px;
+}
+
+.background-slider-row label {
+    min-width: 72px;
+    text-align: right;
 }
 
 .background-settings input[type=file] {

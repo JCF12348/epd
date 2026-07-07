@@ -972,6 +972,21 @@ function clearPageBackground() {
   applyPageBackground('');
 }
 
+function resetBackgroundDefaults() {
+  try {
+    localStorage.removeItem(PAGE_BACKGROUND_STORAGE_KEY);
+    localStorage.removeItem(UI_OPACITY_STORAGE_KEY);
+    localStorage.removeItem(GLASS_CLARITY_STORAGE_KEY);
+  } catch (e) {
+    console.error(e);
+  }
+  const input = document.getElementById('pageBackgroundFile');
+  if (input) input.value = '';
+  applyPageBackground('');
+  applyUiOpacity(DEFAULT_UI_OPACITY);
+  applyGlassClarity(DEFAULT_GLASS_CLARITY);
+}
+
 function resizeBackgroundImage(image) {
   const scale = Math.min(1, PAGE_BACKGROUND_MAX_SIZE / Math.max(image.width, image.height));
   const width = Math.max(1, Math.round(image.width * scale));
@@ -1051,6 +1066,7 @@ function initEventHandlers() {
     setPageBackgroundFromFile(e.target.files[0]);
   });
   document.getElementById("clearPageBackground").addEventListener("click", clearPageBackground);
+  document.getElementById("resetBackgroundDefaults").addEventListener("click", resetBackgroundDefaults);
   document.getElementById("uiOpacityRange").addEventListener("input", (e) => {
     saveUiOpacity(e.target.value);
   });
