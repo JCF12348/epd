@@ -1419,39 +1419,56 @@ body.dark-mode.custom-background::after {
     }
 
     .background-settings {
+        width: 100%;
         gap: 10px 12px;
+        flex-wrap: wrap;
+        overflow: visible;
     }
 
     .background-controls {
-        grid-template-columns: 1fr;
-        grid-template-areas:
-            "file"
-            "sliders"
-            "buttons";
         flex: 1 1 100%;
+        width: 100%;
         gap: 10px 12px;
+        flex-wrap: wrap;
+        overflow: visible;
     }
 
     .background-file-group,
     .background-slider-group,
     .background-button-group {
+        flex: 1 1 100%;
         width: 100%;
+        justify-content: flex-start;
         flex-wrap: wrap;
+        gap: 10px 12px;
     }
 
     .background-file-row,
     .background-slider-row {
         flex: 1 1 100%;
+        min-width: 0;
     }
 
-    .background-settings input[type=file] {
-        width: min(100%, 260px);
+    .background-file-row input[type=file] {
+        flex: 1 1 220px;
+        width: min(100%, 280px);
         max-width: 100%;
+        min-width: 0;
+    }
+
+    .background-slider-row label {
+        flex: 0 0 76px;
+        text-align: left;
     }
 
     .background-settings input[type=range] {
         flex: 1 1 120px;
         width: auto;
+        min-width: 96px;
+    }
+
+    .background-button-group button {
+        flex: 0 0 auto;
     }
 
     .flex-container.options .flex-group label {
@@ -1489,6 +1506,7 @@ body.dark-mode.custom-background::after {
         margin-bottom: 5px;
     }
 }
+
 
 
 
