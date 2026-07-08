@@ -1,4 +1,4 @@
-:root {
+﻿:root {
     --primary-color: #0066cc;
     --primary-hover: #005bb8;
     --primary-focus: #0071e3;
@@ -401,31 +401,26 @@ label {
 }
 
 .footer {
-    display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px 24px;
     align-items: center;
-    justify-content: space-between;
     margin: 24px 0 0;
     padding: 24px 4px 0;
     border-top: 1px solid var(--hairline);
-    color: #7a7a7a;
-    font-size: 12px;
-    line-height: 1.3;
-    letter-spacing: 0;
+    color: #6e6e73;
+    font-size: 13px;
 }
 
 .footer .copy {
-    flex: 1 1 auto;
-    order: 2;
-    margin-top: 8px;
+    grid-column: 1;
+    grid-row: 2;
     text-align: left;
 }
 
 .footer .links {
-    flex: 0 0 auto;
-    order: 3;
-    margin-top: 8px;
+    grid-column: 2;
+    grid-row: 2;
     justify-content: flex-end;
 }
 
@@ -439,27 +434,26 @@ label {
 }
 
 .background-settings {
-    flex: 1 0 100%;
-    order: 1;
-    gap: 10px 12px;
-    flex-wrap: wrap;
-    overflow-x: visible;
-    padding-bottom: 0;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    gap: 14px;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    min-width: 0;
 }
 
-.background-toggle.active {
-    color: #fff;
-    border-color: var(--primary-color);
-    background-color: var(--primary-color);
+.background-toggle {
+    flex: 0 0 auto;
 }
 
 .background-controls {
     display: flex;
     align-items: center;
-    flex: 1 1 100%;
-    gap: 10px 12px;
-    flex-wrap: wrap;
-    overflow-x: visible;
+    flex: 1 1 auto;
+    gap: clamp(12px, 1.4vw, 28px);
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .background-controls[hidden] {
@@ -473,38 +467,38 @@ label {
 .background-slider-row {
     display: flex;
     align-items: center;
+    min-width: 0;
 }
 
-.background-file-group,
-.background-slider-group,
+.background-file-group {
+    flex: 0 1 300px;
+    gap: 10px;
+    flex-wrap: nowrap;
+}
+
+.background-slider-group {
+    flex: 1 1 470px;
+    justify-content: center;
+    gap: clamp(12px, 1.4vw, 24px);
+    flex-wrap: nowrap;
+    min-width: 0;
+}
+
 .background-button-group {
-    flex: 1 1 auto;
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    min-width: min(100%, 260px);
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: nowrap;
 }
 
 .background-file-row,
 .background-slider-row {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     gap: 8px;
     white-space: nowrap;
-}
-
-.background-file-group {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.background-file-row {
-    display: flex;
-}
-
-.background-file-row label,
+}.background-file-row label,
 .background-slider-row label {
-    min-width: 72px;
+    min-width: auto;
     text-align: right;
 }
 
@@ -516,8 +510,9 @@ label {
 }
 
 .background-settings input[type=file] {
-    width: min(100%, 260px);
+    width: clamp(180px, 16vw, 260px);
     max-width: 100%;
+    min-width: 0;
     font-size: 12px;
 }
 
@@ -538,8 +533,9 @@ label {
 }
 
 .background-settings input[type=range] {
-    flex: 1 1 120px;
-    width: auto;
+    flex: 0 1 clamp(92px, 9vw, 140px);
+    width: clamp(92px, 9vw, 140px);
+    min-width: 72px;
 }
 
 .opacity-value {
@@ -1371,32 +1367,38 @@ body.dark-mode.custom-background::after {
 
 @media (max-width: 768px) {
     body {
-        padding-bottom: 28px;
+        padding: 16px;
     }
 
-    .global-nav-inner,
-    .sub-nav-inner,
     .main {
-        padding-left: 14px;
-        padding-right: 14px;
+        padding: 24px 20px;
+        border-radius: 18px;
     }
 
-    .global-nav-inner {
-        gap: 18px;
+    .topbar {
+        gap: 12px;
     }
 
-    h3 {
-        padding: 48px 8px 32px;
-        text-align: center;
+    .topbar h3 {
+        width: 100%;
+    }
+
+    .sub-nav-frosted {
+        margin: 0 -20px 18px;
+        padding: 8px 20px;
+        overflow-x: auto;
+    }
+
+    .sub-nav-frosted::-webkit-scrollbar {
+        display: none;
+    }
+
+    .sub-nav-frosted button {
+        flex: 0 0 auto;
     }
 
     fieldset {
         padding: 18px;
-    }
-
-    .flex-container {
-        flex-direction: column;
-        align-items: stretch;
     }
 
     .flex-group,
@@ -1404,28 +1406,37 @@ body.dark-mode.custom-background::after {
         justify-content: flex-start;
     }
 
+    .footer {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .footer .copy,
     .footer .links {
+        grid-column: 1;
+        grid-row: auto;
         justify-content: flex-start;
     }
 
     .background-settings {
-        flex-wrap: wrap;
-        overflow-x: visible;
         gap: 10px 12px;
     }
 
     .background-controls {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "file"
+            "sliders"
+            "buttons";
         flex: 1 1 100%;
-        flex-wrap: wrap;
-        overflow-x: visible;
         gap: 10px 12px;
     }
 
     .background-file-group,
     .background-slider-group,
     .background-button-group {
-        flex-wrap: wrap;
         width: 100%;
+        flex-wrap: wrap;
     }
 
     .background-file-row,
@@ -1478,3 +1489,6 @@ body.dark-mode.custom-background::after {
         margin-bottom: 5px;
     }
 }
+
+
+
