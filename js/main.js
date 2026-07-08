@@ -7,6 +7,7 @@ let bleWriteChain = Promise.resolve();
 let currentPinsValue = '';
 let ditherSourceImageData = null;
 let ditherPreviewActive = false;
+let pageExitDisconnecting = false;
 
 const PAGE_BACKGROUND_STORAGE_KEY = 'epdCustomPageBackground';
 const PAGE_BACKGROUND_SETTINGS_STORAGE_KEY = 'epdCustomPageBackgroundSettings';
@@ -568,6 +569,39 @@ async function disconnectDevice() {
     if (e.message) addLog('disconnect: ' + e.message);
   }
   finishDisconnect('已断开连接.');
+}
+
+function disconnectDeviceOnPageExit() {
+  if (pageExitDisconnecting) return;
+  pageExitDisconnecting = true;
+
+  const device = bleDevice;
+  try {
+    if (device && device.gatt && device.gatt.connected) {
+      device.gatt.disconnect();
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function disconnectStaleBleConnections() {
+  if (!navigator.bluetooth || typeof navigator.bluetooth.getDevices !== 'function') return;
+
+  try {
+    const devices = await navigator.bluetooth.getDevices();
+    let disconnected = false;
+    for (const device of devices) {
+      const isEpdDevice = device && (device.name || '').startsWith('NRF_EPD');
+      if (isEpdDevice && device.gatt && device.gatt.connected) {
+        device.gatt.disconnect();
+        disconnected = true;
+      }
+    }
+    if (disconnected) addLog('已清理刷新前遗留的蓝牙连接。');
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 async function preConnect() {
@@ -1378,6 +1412,9 @@ document.body.onload = () => {
   paintManager.initPaintTools();
   cropManager.initCropTools();
   initEventHandlers();
+  window.addEventListener('pagehide', disconnectDeviceOnPageExit);
+  window.addEventListener('beforeunload', disconnectDeviceOnPageExit);
+  disconnectStaleBleConnections();
   updateButtonStatus();
   checkDebugMode();
   loadUiOpacity();
