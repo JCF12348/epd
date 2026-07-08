@@ -1294,6 +1294,34 @@ body.dark-mode.custom-background::after {
         justify-content: flex-start;
     }
 
+    .background-settings {
+        flex-wrap: wrap;
+        overflow-x: visible;
+        gap: 10px 12px;
+    }
+
+    .background-file-group,
+    .background-slider-group,
+    .background-button-group {
+        flex-wrap: wrap;
+        width: 100%;
+    }
+
+    .background-file-row,
+    .background-slider-row {
+        flex: 1 1 100%;
+    }
+
+    .background-settings input[type=file] {
+        width: min(100%, 260px);
+        max-width: 100%;
+    }
+
+    .background-settings input[type=range] {
+        flex: 1 1 120px;
+        width: auto;
+    }
+
     .flex-container.options .flex-group label {
         min-width: 80px;
     }
