@@ -1,4 +1,4 @@
-let bleDevice, gattServer;
+﻿let bleDevice, gattServer;
 let epdService, epdCharacteristic;
 let startTime, msgIndex, appVersion;
 let canvas, ctx, textDecoder;
@@ -71,6 +71,7 @@ const canvasSizes = [
   { name: '3.98_768_552', width: 768, height: 552 },
   { name: '3.98_800_600', width: 800, height: 600 },
   { name: '3.87_800_552', width: 800, height: 552 },
+  { name: '9.7_960_680', width: 960, height: 680 },
   { name: '4.2_400_300', width: 400, height: 300 },
   { name: '5.79_792_272', width: 792, height: 272 },
   { name: '5.83_600_448', width: 600, height: 448 },
@@ -103,14 +104,15 @@ function intToHex(intIn) {
   return stringOut.substring(2, 4) + stringOut.substring(0, 2);
 }
 
-function resetVariables() {
+function resetVariables(options = {}) {
+  const clearLog = options.clearLog !== false;
   gattServer = null;
   epdService = null;
   epdCharacteristic = null;
   msgIndex = 0;
   bleWriteChain = Promise.resolve();
   currentPinsValue = '';
-  document.getElementById("log").value = '';
+  if (clearLog) document.getElementById("log").value = '';
 }
 
 function sleep(ms) {
@@ -337,13 +339,19 @@ function set1bppPixel(data, width, x, y, value) {
   else data[byteIndex] &= ~mask;
 }
 
-function convertGDEY037Z03Plane(data) {
-  const srcWidth = 416;
-  const srcHeight = 240;
+function convertGDEY037Z03Plane(data, srcWidth = canvas.width, srcHeight = canvas.height) {
   const nativeWidth = 240;
   const nativeHeight = 416;
-  const output = new Uint8Array((nativeWidth * nativeHeight) / 8).fill(0xFF);
 
+  if (srcWidth === nativeWidth && srcHeight === nativeHeight) {
+    return new Uint8Array(data);
+  }
+
+  if (srcWidth !== nativeHeight || srcHeight !== nativeWidth) {
+    return new Uint8Array(data);
+  }
+
+  const output = new Uint8Array((nativeWidth * nativeHeight) / 8).fill(0xFF);
   for (let y = 0; y < srcHeight; y++) {
     for (let x = 0; x < srcWidth; x++) {
       set1bppPixel(output, nativeWidth, y, nativeHeight - 1 - x, get1bppPixel(data, srcWidth, x, y));
@@ -371,13 +379,25 @@ function set2bppPixel(data, width, x, y, value) {
 function mapGDEM037F51Color(value) {
   return value & 0x03;
 }
-function convertGDEM037F51(data) {
-  const srcWidth = 416;
-  const srcHeight = 240;
+function convertGDEM037F51(data, srcWidth = canvas.width, srcHeight = canvas.height) {
   const nativeWidth = 240;
   const nativeHeight = 416;
-  const output = new Uint8Array((nativeWidth * nativeHeight) / 4);
 
+  if (srcWidth === nativeWidth && srcHeight === nativeHeight) {
+    const output = new Uint8Array(data.length);
+    for (let y = 0; y < srcHeight; y++) {
+      for (let x = 0; x < srcWidth; x++) {
+        set2bppPixel(output, srcWidth, x, y, mapGDEM037F51Color(get2bppPixel(data, srcWidth, x, y)));
+      }
+    }
+    return output;
+  }
+
+  if (srcWidth !== nativeHeight || srcHeight !== nativeWidth) {
+    return new Uint8Array(data);
+  }
+
+  const output = new Uint8Array((nativeWidth * nativeHeight) / 4);
   for (let y = 0; y < srcHeight; y++) {
     for (let x = 0; x < srcWidth; x++) {
       const value = mapGDEM037F51Color(get2bppPixel(data, srcWidth, x, y));
@@ -415,7 +435,7 @@ async function sendimg() {
 
   if (ditherMode === 'fourColor') {
     const useGDEM037F51 = isGDEM037F51Driver(epdDriverSelect);
-    const imagePayload = useGDEM037F51 ? convertGDEM037F51(processedData) : processedData;
+    const imagePayload = useGDEM037F51 ? convertGDEM037F51(processedData, canvas.width, canvas.height) : processedData;
     if (useGDEM037F51) addLog('3.7BWRY 图像数据已按原生颜色码重排为 240x416');
     await writeImage(imagePayload, 'color');
   } else if (ditherMode === 'threeColor') {
@@ -423,8 +443,8 @@ async function sendimg() {
     let blackWhiteData = processedData.slice(0, halfLength);
     let redWhiteData = processedData.slice(halfLength);
     if (isGDEY037Z03Driver(epdDriverSelect)) {
-      blackWhiteData = convertGDEY037Z03Plane(blackWhiteData);
-      redWhiteData = convertGDEY037Z03Plane(redWhiteData);
+      blackWhiteData = convertGDEY037Z03Plane(blackWhiteData, canvas.width, canvas.height);
+      redWhiteData = convertGDEY037Z03Plane(redWhiteData, canvas.width, canvas.height);
       addLog('3.7BWR 图像数据已按原生 240x416 重排');
     }
     if (epdDriverSelect.value === '08' || epdDriverSelect.value === '09') {
@@ -514,18 +534,49 @@ function updateButtonStatus(forceDisabled = false) {
   document.getElementById("setDriverbutton").disabled = status;
 }
 
-function disconnect() {
-  updateButtonStatus();
-  resetVariables();
-  addLog('已断开连接.');
+function finishDisconnect(message = '已断开连接.') {
+  const hadConnectionState = gattServer || epdService || epdCharacteristic ||
+    (bleDevice && bleDevice.gatt && bleDevice.gatt.connected);
+  resetVariables({ clearLog: false });
   document.getElementById("connectbutton").innerHTML = '连接';
+  updateButtonStatus();
+  if (message && hadConnectionState) addLog(message);
+}
+
+function disconnect() {
+  finishDisconnect('已断开连接.');
+}
+
+async function disconnectDevice() {
+  const device = bleDevice;
+  updateButtonStatus(true);
+  try {
+    if (epdCharacteristic && device && device.gatt && device.gatt.connected) {
+      addLog('正在通知设备断开并进入休眠...');
+      const sleepOk = await write(EpdCmd.SYS_SLEEP, null, true);
+      if (sleepOk) await sleep(300);
+      else addLog('设备休眠指令未确认，继续断开蓝牙。');
+    }
+
+    if (device && device.gatt && device.gatt.connected) {
+      addLog('正在断开蓝牙连接...');
+      device.gatt.disconnect();
+      await sleep(200);
+    }
+  } catch (e) {
+    console.error(e);
+    if (e.message) addLog('disconnect: ' + e.message);
+  }
+  finishDisconnect('已断开连接.');
 }
 
 async function preConnect() {
-  if (gattServer != null && gattServer.connected) {
-    if (bleDevice != null && bleDevice.gatt.connected) {
-      bleDevice.gatt.disconnect();
-    }
+  const connected = (gattServer && gattServer.connected) ||
+    (bleDevice && bleDevice.gatt && bleDevice.gatt.connected) ||
+    epdCharacteristic != null;
+  if (connected) {
+    await disconnectDevice();
+    return;
   }
   else {
     resetVariables();
@@ -1334,3 +1385,7 @@ document.body.onload = () => {
   loadPageBackgroundSettings();
   loadPageBackground();
 }
+
+
+
+
