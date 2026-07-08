@@ -23,6 +23,7 @@
     --page-bg-fit: cover;
     --page-bg-transform: translate(0%, 0%) scale(1) rotate(0deg);
     --page-bg-filter: brightness(1) contrast(1) saturate(1);
+    --page-bg-glass-blur-size: 13.2px;
     --page-bg-overlay-opacity: 0.22;
 }
 
@@ -73,7 +74,7 @@ body.custom-background::before {
     background-position: center;
     background-repeat: no-repeat;
     background-size: var(--page-bg-fit);
-    filter: var(--page-bg-filter);
+    filter: var(--page-bg-filter) blur(var(--page-bg-glass-blur-size));
     transform: var(--page-bg-transform);
     transform-origin: center;
 }
@@ -82,6 +83,8 @@ body.custom-background::after {
     inset: 0;
     z-index: -1;
     background: rgba(245, 245, 247, var(--page-bg-overlay-opacity));
+    -webkit-backdrop-filter: saturate(160%) blur(var(--page-bg-glass-blur-size));
+    backdrop-filter: saturate(160%) blur(var(--page-bg-glass-blur-size));
 }
 
 .global-nav {
@@ -587,13 +590,15 @@ label {
     background-position: center;
     background-repeat: no-repeat;
     background-size: var(--page-bg-fit);
-    filter: var(--page-bg-filter);
+    filter: var(--page-bg-filter) blur(var(--page-bg-glass-blur-size));
     transform: var(--page-bg-transform);
     transform-origin: center;
 }
 
 .background-preview-mask {
     background: rgba(245, 245, 247, var(--page-bg-overlay-opacity));
+    -webkit-backdrop-filter: saturate(160%) blur(var(--page-bg-glass-blur-size));
+    backdrop-filter: saturate(160%) blur(var(--page-bg-glass-blur-size));
 }
 
 .background-preview::after {

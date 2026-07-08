@@ -936,7 +936,9 @@ function clampGlassClarity(value) {
 function applyGlassClarity(value) {
   const clarity = clampGlassClarity(value);
   const blur = (1 - clarity) * MAX_GLASS_BLUR;
+  const backgroundBlur = blur * 0.55;
   document.documentElement.style.setProperty('--glass-blur-size', `${blur.toFixed(1)}px`);
+  document.documentElement.style.setProperty('--page-bg-glass-blur-size', `${backgroundBlur.toFixed(1)}px`);
 
   const range = document.getElementById('glassClarityRange');
   const label = document.getElementById('glassClarityValue');
