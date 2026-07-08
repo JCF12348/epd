@@ -6,7 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>墨水屏日历</title>
 	<link rel="shortcut icon" type="image/png" href="favicon.png">
-	<link rel="stylesheet" href="css/main.css?v=2026070811">
+	<link rel="stylesheet" href="css/main.css?v=2026070814">
 </head>
 
 <body>
@@ -14,7 +14,7 @@
 		<div class="global-nav-inner">
 			<a class="global-brand" href="#">EPD</a>
 			<a href="#bluetooth-panel">蓝牙</a>
-			<a href="#device-panel">设备</a>
+			<a href="#device-panel">模式</a>
 			<a href="#image-panel">传图</a>
 		</div>
 	</nav>
@@ -65,7 +65,7 @@
 			<div class="log-container" id="log"></div>
 		</fieldset>
 		<fieldset id="device-panel">
-			<legend>设备控制</legend>
+			<legend>模式切换</legend>
 			<div class="flex-container">
 				<div class="flex-group">
 					<label for="weekStart">星期第一天:</label>
@@ -196,6 +196,7 @@
 						<button id="text-mode" title="添加文字" class="tool-button">T</button>
 						<button id="todo-mode" title="待办事项" class="tool-button">☐</button>
 						<button id="schedule-mode" title="课表" class="tool-button">📅</button>
+						<button id="matter-mode" title="事项模板" class="tool-button">事</button>
 						<button id="undo-btn" title="撤销 (Ctrl+Z)" class="tool-button hide">↶</button>
 						<button id="redo-btn" title="重做 (Ctrl+Y)" class="tool-button hide">↷</button>
 					</div>
@@ -314,6 +315,42 @@
 						<button id="schedule-input-confirm-btn" class="primary">确定</button>
 						<button id="schedule-input-cancel-btn" class="secondary">取消</button>
 					</div>
+					<div class="flex-group matter-tools matter-actions">
+						<button id="matter-render-btn" class="primary">生成事项</button>
+						<button id="matter-add-limit-btn">添加限时</button>
+						<button id="matter-add-todo-btn">添加待办</button>
+						<button id="matter-add-schedule-btn">添加日程</button>
+						<button id="matter-clear-btn" class="secondary">清空事项</button>
+					</div>
+					<div class="matter-tools matter-editor">
+						<div class="matter-section">
+							<div class="matter-section-title">限时事项</div>
+							<table id="matter-limit-table">
+								<thead>
+									<tr><th>名称</th><th>提醒</th><th>截止</th><th></th></tr>
+								</thead>
+								<tbody></tbody>
+							</table>
+						</div>
+						<div class="matter-section">
+							<div class="matter-section-title">待办事项</div>
+							<table id="matter-todo-table">
+								<thead>
+									<tr><th>事项</th><th>级别</th><th></th></tr>
+								</thead>
+								<tbody></tbody>
+							</table>
+						</div>
+						<div class="matter-section">
+							<div class="matter-section-title">今日日程</div>
+							<table id="matter-schedule-table">
+								<thead>
+									<tr><th>分类</th><th>内容</th><th></th></tr>
+								</thead>
+								<tbody></tbody>
+							</table>
+						</div>
+					</div>
 					<div class="flex-group crop-tools">
 						<button id="crop-zoom-in" title="放大" class="secondary">+</button>
 						<button id="crop-zoom-out" title="缩小" class="secondary">-</button>
@@ -328,28 +365,31 @@
 		</fieldset>
 		<div class="footer">
 			<span class="background-settings">
-				<span class="background-file-group">
-					<span class="background-file-row">
-						<label for="pageBackgroundFile">网页背景:</label>
-						<input type="file" id="pageBackgroundFile" accept=".png,.jpg,.jpeg,.webp,.bmp">
+				<button id="toggleBackgroundControls" type="button" class="secondary background-toggle" aria-expanded="false" aria-controls="backgroundControls">网页背景</button>
+				<span id="backgroundControls" class="background-controls" hidden>
+					<span class="background-file-group">
+						<span class="background-file-row">
+							<label for="pageBackgroundFile">背景图片:</label>
+							<input type="file" id="pageBackgroundFile" accept=".png,.jpg,.jpeg,.webp,.bmp">
+						</span>
+						<button id="openBackgroundSettings" type="button" class="secondary">背景设置</button>
 					</span>
-					<button id="openBackgroundSettings" type="button" class="secondary">背景设置</button>
-				</span>
-				<span class="background-slider-group">
-					<span class="background-slider-row">
-						<label for="uiOpacityRange">UI透明度:</label>
-						<input type="range" id="uiOpacityRange" min="0" max="1" step="0.01" value="0.88">
-						<span id="uiOpacityValue" class="opacity-value">88%</span>
+					<span class="background-slider-group">
+						<span class="background-slider-row">
+							<label for="uiOpacityRange">UI透明度:</label>
+							<input type="range" id="uiOpacityRange" min="0" max="1" step="0.01" value="0.88">
+							<span id="uiOpacityValue" class="opacity-value">88%</span>
+						</span>
+						<span class="background-slider-row">
+							<label for="glassClarityRange">背景清晰度:</label>
+							<input type="range" id="glassClarityRange" min="0" max="1" step="0.01" value="0">
+							<span id="glassClarityValue" class="opacity-value">0%</span>
+						</span>
 					</span>
-					<span class="background-slider-row">
-						<label for="glassClarityRange">背景清晰度:</label>
-						<input type="range" id="glassClarityRange" min="0" max="1" step="0.01" value="0">
-						<span id="glassClarityValue" class="opacity-value">0%</span>
+					<span class="background-button-group">
+						<button id="clearPageBackground" type="button" class="secondary">清除背景</button>
+						<button id="resetBackgroundDefaults" type="button" class="secondary">恢复默认</button>
 					</span>
-				</span>
-				<span class="background-button-group">
-					<button id="clearPageBackground" type="button" class="secondary">清除背景</button>
-					<button id="resetBackgroundDefaults" type="button" class="secondary">恢复默认</button>
 				</span>
 			</span>
 			<span class="links">
@@ -417,9 +457,9 @@
 		</div>
 	</div>
 	<script type="text/javascript" src="js/dithering.js?v=2026070702"></script>
-	<script type="text/javascript" src="js/paint.js?v=2026070804"></script>
+	<script type="text/javascript" src="js/paint.js?v=2026070818"></script>
 	<script type="text/javascript" src="js/crop.js?v=20251109"></script>
-	<script type="text/javascript" src="js/main.js?v=2026070719"></script>
+	<script type="text/javascript" src="js/main.js?v=2026070803"></script>
 </body>
 
 </html>

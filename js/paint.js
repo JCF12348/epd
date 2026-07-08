@@ -41,6 +41,10 @@ class PaintManager {
     this.showScheduleCellIndicator = true;
     this.scheduleCellFontSizes = null;
     this.scheduleBaseImageData = null;
+    this.matterTimeLimits = [];
+    this.matterTodos = [];
+    this.matterSchedules = [];
+    this.matterTemplateRendered = false;
 
     // Brush cursor indicator
     this.brushCursor = null;
@@ -232,9 +236,24 @@ class PaintManager {
       }
     });
 
+    document.getElementById('matter-mode').addEventListener('click', () => {
+      if (this.currentTool === 'matter') {
+        this.setActiveTool(null, '');
+      } else {
+        this.loadMatterData();
+        this.renderMatterTables();
+        this.setActiveTool('matter', '事项模板');
+      }
+    });
+
     document.getElementById('create-schedule-btn').addEventListener('click', () => this.createSchedule());
     document.getElementById('schedule-input-confirm-btn').addEventListener('click', () => this.confirmScheduleInput());
     document.getElementById('schedule-input-cancel-btn').addEventListener('click', () => this.cancelScheduleInput());
+    document.getElementById('matter-render-btn').addEventListener('click', () => this.renderMatterTemplateToCanvas());
+    document.getElementById('matter-add-limit-btn').addEventListener('click', () => this.addMatterTimeLimit());
+    document.getElementById('matter-add-todo-btn').addEventListener('click', () => this.addMatterTodo());
+    document.getElementById('matter-add-schedule-btn').addEventListener('click', () => this.addMatterSchedule());
+    document.getElementById('matter-clear-btn').addEventListener('click', () => this.clearMatterData());
 
     document.getElementById('todo-bold').addEventListener('click', () => {
       this.todoBold = !this.todoBold;
@@ -360,15 +379,17 @@ class PaintManager {
     this.canvas.parentNode.classList.toggle('text-mode', this.currentTool === 'text');
     this.canvas.parentNode.classList.toggle('todo-mode', this.currentTool === 'todo');
     this.canvas.parentNode.classList.toggle('schedule-mode', this.currentTool === 'schedule');
+    this.canvas.parentNode.classList.toggle('matter-mode', this.currentTool === 'matter');
 
     document.getElementById('brush-mode').classList.toggle('active', this.currentTool === 'brush');
     document.getElementById('eraser-mode').classList.toggle('active', this.currentTool === 'eraser');
     document.getElementById('text-mode').classList.toggle('active', this.currentTool === 'text');
     document.getElementById('todo-mode').classList.toggle('active', this.currentTool === 'todo');
     document.getElementById('schedule-mode').classList.toggle('active', this.currentTool === 'schedule');
+    document.getElementById('matter-mode').classList.toggle('active', this.currentTool === 'matter');
 
-    document.getElementById('brush-color').disabled = this.currentTool === 'eraser' || this.currentTool === 'todo' || this.currentTool === 'schedule';
-    document.getElementById('brush-size').disabled = this.currentTool === 'text' || this.currentTool === 'todo' || this.currentTool === 'schedule';
+    document.getElementById('brush-color').disabled = this.currentTool === 'eraser' || this.currentTool === 'todo' || this.currentTool === 'schedule' || this.currentTool === 'matter';
+    document.getElementById('brush-size').disabled = this.currentTool === 'text' || this.currentTool === 'todo' || this.currentTool === 'schedule' || this.currentTool === 'matter';
 
     document.getElementById('undo-btn').classList.toggle('hide', this.currentTool === null);
     document.getElementById('redo-btn').classList.toggle('hide', this.currentTool === null);
@@ -1451,6 +1472,502 @@ class PaintManager {
 
       this.ctx.stroke();
     });
+  }
+
+  getMatterStorageKey() {
+    return 'matterTemplateCache';
+  }
+
+  getTodayIsoDate() {
+    return new Date().toISOString().split('T')[0];
+  }
+
+  escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  loadMatterData() {
+    try {
+      const cache = localStorage.getItem(this.getMatterStorageKey());
+      if (cache) {
+        const data = JSON.parse(cache);
+        this.matterTimeLimits = Array.isArray(data.timeLimits) ? data.timeLimits : [];
+        this.matterTodos = Array.isArray(data.todos) ? data.todos : [];
+        this.matterSchedules = Array.isArray(data.schedules) ? data.schedules : [];
+        return;
+      }
+    } catch (e) {
+      console.error('Failed to load matter data:', e);
+    }
+
+    this.matterTimeLimits = [
+      { name: '重要事项', value: '30', endDate: this.getTodayIsoDate() }
+    ];
+    this.matterTodos = [
+      { name: '新待办', extra: '中' }
+    ];
+    this.matterSchedules = [
+      { itemclass: '日程', activity: '新活动' }
+    ];
+  }
+
+  saveMatterData() {
+    try {
+      localStorage.setItem(this.getMatterStorageKey(), JSON.stringify({
+        timeLimits: this.matterTimeLimits,
+        todos: this.matterTodos,
+        schedules: this.matterSchedules
+      }));
+    } catch (e) {
+      console.error('Failed to save matter data:', e);
+    }
+  }
+
+  renderMatterTables() {
+    const limitBody = document.querySelector('#matter-limit-table tbody');
+    const todoBody = document.querySelector('#matter-todo-table tbody');
+    const scheduleBody = document.querySelector('#matter-schedule-table tbody');
+
+    if (limitBody) {
+      limitBody.innerHTML = this.matterTimeLimits.map((item, index) => `
+        <tr>
+          <td><input type="text" value="${this.escapeHtml(item.name)}" data-matter-type="limit" data-matter-index="${index}" data-matter-field="name"></td>
+          <td><input type="number" min="0" max="999" value="${this.escapeHtml(item.value)}" data-matter-type="limit" data-matter-index="${index}" data-matter-field="value"></td>
+          <td><input type="date" value="${this.escapeHtml(item.endDate)}" data-matter-type="limit" data-matter-index="${index}" data-matter-field="endDate"></td>
+          <td><button class="matter-delete" data-matter-delete="limit" data-matter-index="${index}">删</button></td>
+        </tr>
+      `).join('');
+    }
+
+    if (todoBody) {
+      todoBody.innerHTML = this.matterTodos.map((item, index) => `
+        <tr>
+          <td><input type="text" value="${this.escapeHtml(item.name)}" data-matter-type="todo" data-matter-index="${index}" data-matter-field="name"></td>
+          <td>
+            <select data-matter-type="todo" data-matter-index="${index}" data-matter-field="extra">
+              <option value="高" ${item.extra === '高' ? 'selected' : ''}>高</option>
+              <option value="中" ${item.extra === '中' ? 'selected' : ''}>中</option>
+              <option value="低" ${item.extra === '低' ? 'selected' : ''}>低</option>
+            </select>
+          </td>
+          <td><button class="matter-delete" data-matter-delete="todo" data-matter-index="${index}">删</button></td>
+        </tr>
+      `).join('');
+    }
+
+    if (scheduleBody) {
+      scheduleBody.innerHTML = this.matterSchedules.map((item, index) => `
+        <tr>
+          <td><input type="text" value="${this.escapeHtml(item.itemclass)}" data-matter-type="schedule" data-matter-index="${index}" data-matter-field="itemclass"></td>
+          <td><input type="text" value="${this.escapeHtml(item.activity)}" data-matter-type="schedule" data-matter-index="${index}" data-matter-field="activity"></td>
+          <td><button class="matter-delete" data-matter-delete="schedule" data-matter-index="${index}">删</button></td>
+        </tr>
+      `).join('');
+    }
+
+    document.querySelectorAll('[data-matter-type]').forEach(input => {
+      input.addEventListener('change', (e) => {
+        this.updateMatterItem(
+          e.target.getAttribute('data-matter-type'),
+          parseInt(e.target.getAttribute('data-matter-index'), 10),
+          e.target.getAttribute('data-matter-field'),
+          e.target.value
+        );
+      });
+    });
+
+    document.querySelectorAll('[data-matter-delete]').forEach(button => {
+      button.addEventListener('click', (e) => {
+        this.deleteMatterItem(
+          e.target.getAttribute('data-matter-delete'),
+          parseInt(e.target.getAttribute('data-matter-index'), 10)
+        );
+      });
+    });
+  }
+
+  addMatterTimeLimit() {
+    this.matterTimeLimits.push({ name: '新时限项', value: '30', endDate: this.getTodayIsoDate() });
+    this.saveMatterData();
+    this.renderMatterTables();
+  }
+
+  addMatterTodo() {
+    this.matterTodos.push({ name: '新待办', extra: '中' });
+    this.saveMatterData();
+    this.renderMatterTables();
+  }
+
+  addMatterSchedule() {
+    this.matterSchedules.push({ itemclass: '日程', activity: '新活动' });
+    this.saveMatterData();
+    this.renderMatterTables();
+  }
+
+  updateMatterItem(type, index, field, value) {
+    const groups = {
+      limit: this.matterTimeLimits,
+      todo: this.matterTodos,
+      schedule: this.matterSchedules
+    };
+    const list = groups[type];
+    if (!list || !list[index]) return;
+    list[index][field] = value;
+    this.saveMatterData();
+  }
+
+  deleteMatterItem(type, index) {
+    const groups = {
+      limit: this.matterTimeLimits,
+      todo: this.matterTodos,
+      schedule: this.matterSchedules
+    };
+    const list = groups[type];
+    if (!list || !list[index]) return;
+    list.splice(index, 1);
+    this.saveMatterData();
+    this.renderMatterTables();
+  }
+
+  clearMatterData() {
+    if (!confirm('清空所有事项数据?')) return;
+    this.matterTimeLimits = [];
+    this.matterTodos = [];
+    this.matterSchedules = [];
+    this.saveMatterData();
+    this.renderMatterTables();
+  }
+
+  calculateMatterDaysDiff(targetDateStr) {
+    const targetDate = new Date(targetDateStr);
+    if (Number.isNaN(targetDate.getTime())) return 0;
+    const now = new Date();
+    const timeDiff = targetDate - now;
+    return Math.max(0, Math.ceil(timeDiff / (1000 * 60 * 60 * 24)));
+  }
+
+  formatMatterDays(days) {
+    if (days > 365) return `${Math.floor(days / 365)}年`;
+    if (days > 90) return `${Math.floor(days / 30)}月`;
+    return `${days}天`;
+  }
+
+  drawMatterRoundRect(x, y, width, height, radius, fillStyle, strokeStyle = '#000000', lineWidth = 1) {
+    this.ctx.save();
+    this.ctx.beginPath();
+    if (typeof this.ctx.roundRect === 'function') {
+      this.ctx.roundRect(x, y, width, height, radius);
+    } else {
+      const r = Math.min(radius, width / 2, height / 2);
+      this.ctx.moveTo(x + r, y);
+      this.ctx.lineTo(x + width - r, y);
+      this.ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+      this.ctx.lineTo(x + width, y + height - r);
+      this.ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+      this.ctx.lineTo(x + r, y + height);
+      this.ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+      this.ctx.lineTo(x, y + r);
+      this.ctx.quadraticCurveTo(x, y, x + r, y);
+    }
+    this.ctx.closePath();
+    if (fillStyle) {
+      this.ctx.fillStyle = fillStyle;
+      this.ctx.fill();
+    }
+    if (strokeStyle) {
+      this.ctx.strokeStyle = strokeStyle;
+      this.ctx.lineWidth = lineWidth;
+      this.ctx.stroke();
+    }
+    this.ctx.restore();
+  }
+
+  drawMatterText(text, x, y, maxWidth, font, color = '#000000', align = 'left', baseline = 'top') {
+    const value = String(text ?? '');
+    this.ctx.save();
+    this.ctx.font = font;
+    this.ctx.fillStyle = color;
+    this.ctx.textAlign = align;
+    this.ctx.textBaseline = baseline;
+
+    let output = value;
+    while (output.length > 1 && this.ctx.measureText(output).width > maxWidth) {
+      output = output.slice(0, -1);
+    }
+    if (output !== value && output.length > 1) output = output.slice(0, -1) + '…';
+    this.ctx.fillText(output, x, y);
+    this.ctx.restore();
+  }
+
+  drawMatterInlineText(parts, centerX, y, font, baseline = 'middle') {
+    this.ctx.save();
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = baseline;
+    const totalWidth = parts.reduce((sum, part) => {
+      this.ctx.font = part.font || font;
+      return sum + this.ctx.measureText(part.text).width;
+    }, 0);
+    let x = centerX - totalWidth / 2;
+    parts.forEach((part) => {
+      this.ctx.font = part.font || font;
+      this.ctx.fillStyle = part.color;
+      this.ctx.fillText(part.text, x, y);
+      x += this.ctx.measureText(part.text).width;
+    });
+    this.ctx.restore();
+  }
+
+  getMatterPalette() {
+    const driverSelect = document.getElementById('epddriver');
+    const selectedDriver = driverSelect?.options?.[driverSelect.selectedIndex];
+    const mode = document.getElementById('ditherMode')?.value || selectedDriver?.getAttribute('data-color') || 'blackWhiteColor';
+
+    const palettes = {
+      blackWhiteColor: {
+        modeLabel: '黑白',
+        title: '#000000',
+        dateNumber: '#000000',
+        weekFill: '#000000',
+        weekText: '#ffffff',
+        todoHeaderFill: '#000000',
+        todoHeaderText: '#ffffff',
+        limitHeaderFill: '#000000',
+        limitHeaderText: '#ffffff',
+        scheduleHeaderFill: '#000000',
+        scheduleHeaderText: '#ffffff',
+        priorityHighText: '#000000',
+        overflowText: '#000000',
+        urgentFill: '#000000',
+        urgentText: '#ffffff',
+        normalChipFill: '#000000',
+        normalChipText: '#ffffff',
+        scheduleClassText: '#000000'
+      },
+      threeColor: {
+        modeLabel: '黑白红',
+        title: '#cc0000',
+        dateNumber: '#cc0000',
+        weekFill: '#cc0000',
+        weekText: '#ffffff',
+        todoHeaderFill: '#cc0000',
+        todoHeaderText: '#ffffff',
+        limitHeaderFill: '#000000',
+        limitHeaderText: '#ffffff',
+        scheduleHeaderFill: '#cc0000',
+        scheduleHeaderText: '#ffffff',
+        priorityHighText: '#cc0000',
+        overflowText: '#cc0000',
+        urgentFill: '#cc0000',
+        urgentText: '#ffffff',
+        normalChipFill: '#000000',
+        normalChipText: '#ffffff',
+        scheduleClassText: '#cc0000'
+      },
+      fourColor: {
+        modeLabel: '黑白红黄',
+        title: '#cc0000',
+        dateNumber: '#cc0000',
+        weekFill: '#ffff00',
+        weekText: '#000000',
+        todoHeaderFill: '#cc0000',
+        todoHeaderText: '#ffffff',
+        limitHeaderFill: '#ffff00',
+        limitHeaderText: '#000000',
+        scheduleHeaderFill: '#000000',
+        scheduleHeaderText: '#ffffff',
+        priorityHighText: '#cc0000',
+        overflowText: '#cc0000',
+        urgentFill: '#cc0000',
+        urgentText: '#ffffff',
+        normalChipFill: '#ffff00',
+        normalChipText: '#000000',
+        scheduleClassText: '#cc0000'
+      },
+      sixColor: {
+        modeLabel: '六色',
+        title: '#0000ff',
+        dateNumber: '#cc0000',
+        weekFill: '#ffff00',
+        weekText: '#000000',
+        todoHeaderFill: '#29cc14',
+        todoHeaderText: '#000000',
+        limitHeaderFill: '#ffff00',
+        limitHeaderText: '#000000',
+        scheduleHeaderFill: '#0000ff',
+        scheduleHeaderText: '#ffffff',
+        priorityHighText: '#cc0000',
+        overflowText: '#0000ff',
+        urgentFill: '#cc0000',
+        urgentText: '#ffffff',
+        normalChipFill: '#29cc14',
+        normalChipText: '#000000',
+        scheduleClassText: '#0000ff'
+      }
+    };
+
+    return palettes[mode] || palettes.blackWhiteColor;
+  }
+
+  getMatterTemplateInset() {
+    const driver = (document.getElementById('epddriver')?.value || '').toLowerCase();
+    if (driver === '10' || driver === '11' || driver === '13') {
+      return { x: 5, y: 5 };
+    }
+    return { x: 0, y: 0 };
+  }
+
+  drawMatterTemplateBase() {
+    const palette = this.getMatterPalette();
+    const black = '#000000';
+    const fontFamily = `"${this.getSharedFontFamily()}", "Microsoft YaHei", "SimHei", sans-serif`;
+    const now = new Date();
+    const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillRect(0, 0, 400, 300);
+
+    this.drawMatterRoundRect(8, 8, 384, 40, 5, '#ffffff', black);
+    this.ctx.strokeStyle = black;
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.ctx.moveTo(205, 12);
+    this.ctx.lineTo(205, 44);
+    this.ctx.stroke();
+    const dateNumberFont = `bold 21px ${fontFamily}`;
+    const dateUnitFont = `bold 14px ${fontFamily}`;
+    this.drawMatterInlineText([
+      { text: String(now.getFullYear()), color: palette.dateNumber, font: dateNumberFont },
+      { text: '年', color: black, font: dateUnitFont },
+      { text: String(now.getMonth() + 1), color: palette.dateNumber, font: dateNumberFont },
+      { text: '月', color: black, font: dateUnitFont },
+      { text: String(now.getDate()), color: palette.dateNumber, font: dateNumberFont },
+      { text: '日', color: black, font: dateUnitFont }
+    ], 74, 28, dateUnitFont);
+    this.drawMatterRoundRect(156, 19, 42, 19, 3, palette.weekFill, palette.weekFill);
+    this.drawMatterText(weekDays[now.getDay()], 177, 28, 36, `bold 13px ${fontFamily}`, palette.weekText, 'center', 'middle');
+    this.drawMatterText('事项看板', 298, 28, 168, `bold 26px ${fontFamily}`, palette.title, 'center', 'middle');
+
+    const sortedLimits = [...this.matterTimeLimits].sort((a, b) => {
+      return this.calculateMatterDaysDiff(a.endDate) - this.calculateMatterDaysDiff(b.endDate);
+    });
+
+    const contentTop = 54;
+    const contentBottom = 292;
+    const gap = 8;
+    const scheduleRowsWanted = Math.max(1, this.matterSchedules.length);
+    const scheduleHeight = Math.max(46, Math.min(112, 28 + scheduleRowsWanted * 22));
+    const topHeight = contentBottom - contentTop - gap - scheduleHeight;
+    const topHeaderHeight = 24;
+    const topBodyY = contentTop + topHeaderHeight + 6;
+    const topBodyHeight = topHeight - topHeaderHeight - 10;
+
+    this.drawMatterRoundRect(8, contentTop, 228, topHeight, 4, '#ffffff', black);
+    this.drawMatterRoundRect(8, contentTop, 228, topHeaderHeight, 3, palette.todoHeaderFill, palette.todoHeaderFill);
+    this.drawMatterText('待办事项', 122, contentTop + 3, 210, `bold 18px ${fontFamily}`, palette.todoHeaderText, 'center');
+
+    const todoRowHeight = Math.max(14, Math.min(24, Math.floor(topBodyHeight / Math.max(1, this.matterTodos.length))));
+    const todoFontSize = Math.max(11, Math.min(17, todoRowHeight - 5));
+    const visibleTodoCount = Math.min(this.matterTodos.length, Math.floor(topBodyHeight / todoRowHeight));
+    const visibleTodos = this.matterTodos.slice(0, visibleTodoCount);
+    visibleTodos.forEach((item, index) => {
+      const y = topBodyY + index * todoRowHeight;
+      this.ctx.strokeStyle = black;
+      this.ctx.lineWidth = 1;
+      this.ctx.beginPath();
+      this.ctx.moveTo(14, y + todoRowHeight - 3);
+      this.ctx.lineTo(230, y + todoRowHeight - 3);
+      this.ctx.stroke();
+      this.drawMatterText(item.name, 16, y + 1, 154, `bold ${todoFontSize}px ${fontFamily}`, black);
+      this.drawMatterText(item.extra, 226, y + 1, 48, `bold ${todoFontSize}px ${fontFamily}`, item.extra === '高' ? palette.priorityHighText : black, 'right');
+    });
+    if (this.matterTodos.length > visibleTodos.length) {
+      this.drawMatterText(`+${this.matterTodos.length - visibleTodos.length}项`, 226, contentTop + topHeight - 17, 60, `bold 12px ${fontFamily}`, palette.overflowText, 'right');
+    }
+
+    this.drawMatterRoundRect(244, contentTop, 148, topHeight, 4, '#ffffff', black);
+    this.drawMatterRoundRect(244, contentTop, 148, topHeaderHeight, 3, palette.limitHeaderFill, palette.limitHeaderFill);
+    this.drawMatterText('限时事项', 318, contentTop + 3, 130, `bold 17px ${fontFamily}`, palette.limitHeaderText, 'center');
+
+    const limitRowHeight = Math.max(18, Math.min(29, Math.floor(topBodyHeight / Math.max(1, sortedLimits.length))));
+    const limitFontSize = Math.max(11, Math.min(14, limitRowHeight - 10));
+    const visibleLimitCount = Math.min(sortedLimits.length, Math.floor(topBodyHeight / limitRowHeight));
+    const visibleLimits = sortedLimits.slice(0, visibleLimitCount);
+    visibleLimits.forEach((item, index) => {
+      const y = topBodyY + index * limitRowHeight;
+      const days = this.calculateMatterDaysDiff(item.endDate);
+      const ahead = parseInt(item.value, 10) || 0;
+      const urgent = days <= ahead;
+      const chipHeight = Math.max(14, limitRowHeight - 6);
+      const chipFill = urgent ? palette.urgentFill : palette.normalChipFill;
+      const chipText = urgent ? palette.urgentText : palette.normalChipText;
+      this.drawMatterRoundRect(249, y, 138, limitRowHeight - 3, 3, '#ffffff', black);
+      this.drawMatterRoundRect(252, y + 3, 66, chipHeight, 2, chipFill, chipFill);
+      this.drawMatterText(item.name, 285, y + 5, 60, `bold ${limitFontSize}px ${fontFamily}`, chipText, 'center');
+      this.drawMatterText(this.formatMatterDays(days), 384, y + 5, 62, `bold ${Math.min(14, limitFontSize + 1)}px ${fontFamily}`, urgent ? palette.priorityHighText : black, 'right');
+    });
+    if (sortedLimits.length > visibleLimits.length) {
+      this.drawMatterText(`+${sortedLimits.length - visibleLimits.length}项`, 384, contentTop + topHeight - 17, 62, `bold 12px ${fontFamily}`, palette.overflowText, 'right');
+    }
+
+    const scheduleY = contentTop + topHeight + gap;
+    const scheduleHeaderHeight = 20;
+    const scheduleBodyY = scheduleY + scheduleHeaderHeight + 5;
+    const scheduleBodyHeight = scheduleHeight - scheduleHeaderHeight - 8;
+    this.drawMatterRoundRect(8, scheduleY, 384, scheduleHeight, 4, '#ffffff', black);
+    this.drawMatterRoundRect(8, scheduleY, 384, scheduleHeaderHeight, 3, palette.scheduleHeaderFill, palette.scheduleHeaderFill);
+    this.drawMatterText('今日日程', 200, scheduleY + 2, 360, `bold 15px ${fontFamily}`, palette.scheduleHeaderText, 'center');
+    const scheduleRowHeight = Math.max(16, Math.min(22, Math.floor(scheduleBodyHeight / Math.max(1, this.matterSchedules.length))));
+    const scheduleFontSize = Math.max(11, Math.min(15, scheduleRowHeight - 5));
+    const visibleScheduleCount = Math.min(this.matterSchedules.length, Math.floor(scheduleBodyHeight / scheduleRowHeight));
+    const visibleSchedules = this.matterSchedules.slice(0, visibleScheduleCount);
+    visibleSchedules.forEach((item, index) => {
+      const y = scheduleBodyY + index * scheduleRowHeight;
+      this.ctx.strokeStyle = black;
+      this.ctx.lineWidth = 1;
+      this.ctx.beginPath();
+      this.ctx.moveTo(14, y + scheduleRowHeight - 3);
+      this.ctx.lineTo(386, y + scheduleRowHeight - 3);
+      this.ctx.stroke();
+      this.drawMatterText(item.itemclass, 16, y + 1, 96, `bold ${scheduleFontSize}px ${fontFamily}`, palette.scheduleClassText);
+      this.drawMatterText(item.activity, 116, y + 1, 228, `${scheduleFontSize}px ${fontFamily}`, black);
+    });
+    if (this.matterSchedules.length > visibleSchedules.length) {
+      this.drawMatterText(`+${this.matterSchedules.length - visibleSchedules.length}项`, 384, scheduleY + scheduleHeight - 17, 44, `bold 12px ${fontFamily}`, palette.overflowText, 'right');
+    }
+  }
+
+  renderMatterTemplateToCanvas(options = {}) {
+    const saveHistory = options.saveHistory !== false;
+    const silent = options.silent === true;
+    const ditherAlg = document.getElementById('ditherAlg');
+    if (ditherAlg) ditherAlg.value = 'none';
+    this.clearElements();
+    this.ctx.save();
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.scale(this.canvas.width / 400, this.canvas.height / 300);
+    const inset = this.getMatterTemplateInset();
+    if (inset.x > 0 || inset.y > 0) {
+      this.ctx.translate(inset.x, inset.y);
+      this.ctx.scale((400 - inset.x * 2) / 400, (300 - inset.y * 2) / 300);
+    }
+    this.drawMatterTemplateBase();
+    this.ctx.restore();
+    this.matterTemplateRendered = true;
+    if (saveHistory) this.saveToHistory();
+    this.markCanvasChanged();
+    if (!silent && typeof addLog === 'function') addLog('事项模板已绘制到画布');
+  }
+
+  refreshMatterTemplatePalette() {
+    if (!this.matterTemplateRendered) return;
+    this.renderMatterTemplateToCanvas({ saveHistory: false, silent: true });
+    if (typeof addLog === 'function') addLog('事项模板配色已按当前屏幕颜色刷新');
   }
 
   clearElements() {

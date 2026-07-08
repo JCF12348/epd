@@ -441,10 +441,29 @@ label {
 .background-settings {
     flex: 1 0 100%;
     order: 1;
-    gap: 8px;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: 2px;
+    gap: 10px 12px;
+    flex-wrap: wrap;
+    overflow-x: visible;
+    padding-bottom: 0;
+}
+
+.background-toggle.active {
+    color: #fff;
+    border-color: var(--primary-color);
+    background-color: var(--primary-color);
+}
+
+.background-controls {
+    display: flex;
+    align-items: center;
+    flex: 1 1 100%;
+    gap: 10px 12px;
+    flex-wrap: wrap;
+    overflow-x: visible;
+}
+
+.background-controls[hidden] {
+    display: none;
 }
 
 .background-file-group,
@@ -459,15 +478,16 @@ label {
 .background-file-group,
 .background-slider-group,
 .background-button-group {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     flex-direction: row;
     align-items: center;
     gap: 8px;
+    min-width: min(100%, 260px);
 }
 
 .background-file-row,
 .background-slider-row {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     gap: 8px;
     white-space: nowrap;
 }
@@ -496,8 +516,8 @@ label {
 }
 
 .background-settings input[type=file] {
-    width: 210px;
-    max-width: 210px;
+    width: min(100%, 260px);
+    max-width: 100%;
     font-size: 12px;
 }
 
@@ -518,7 +538,8 @@ label {
 }
 
 .background-settings input[type=range] {
-    width: 104px;
+    flex: 1 1 120px;
+    width: auto;
 }
 
 .opacity-value {
@@ -931,6 +952,7 @@ canvas.text-placement-mode {
 .text-tools,
 .todo-tools,
 .schedule-tools,
+.matter-tools,
 .crop-tools {
     display: none;
 }
@@ -943,6 +965,8 @@ canvas.text-placement-mode {
 .canvas-container.todo-mode .todo-tools,
 .canvas-container.schedule-mode .shared-font-tools,
 .canvas-container.schedule-mode .schedule-tools,
+.canvas-container.matter-mode .shared-font-tools,
+.canvas-container.matter-mode .matter-tools,
 .canvas-container.crop-mode .crop-tools {
     display: flex;
 }
@@ -964,7 +988,8 @@ canvas.text-placement-mode {
 }
 
 .canvas-container.todo-mode .text-size-controls,
-.canvas-container.schedule-mode .text-size-controls {
+.canvas-container.schedule-mode .text-size-controls,
+.canvas-container.matter-mode .text-size-controls {
     display: none;
 }
 
@@ -973,8 +998,85 @@ canvas.text-placement-mode {
 .canvas-container.crop-mode .brush-tools,
 .canvas-container.crop-mode .text-tools,
 .canvas-container.crop-mode .todo-tools,
-.canvas-container.crop-mode .schedule-tools {
+.canvas-container.crop-mode .schedule-tools,
+.canvas-container.crop-mode .matter-tools {
     display: none;
+}
+
+.matter-actions {
+    width: 100%;
+    justify-content: center;
+}
+
+.matter-editor {
+    width: min(100%, 980px);
+    margin: 12px auto 0;
+    display: none;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: stretch;
+    justify-content: center;
+}
+
+.matter-section {
+    flex: 1 1 260px;
+    min-width: 230px;
+    overflow: hidden;
+    border: 1px solid var(--hairline);
+    border-radius: var(--ui-radius-inner-size);
+    background: rgba(255, 255, 255, var(--ui-footer-opacity));
+}
+
+.matter-section-title {
+    padding: 8px 10px;
+    color: #fff;
+    background: #cc0000;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.matter-editor table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 12px;
+}
+
+.matter-editor th,
+.matter-editor td {
+    padding: 6px;
+    border-top: 1px solid var(--hairline);
+    overflow: hidden;
+}
+
+.matter-editor th {
+    color: var(--body-muted);
+    font-weight: 600;
+    background: rgba(246, 247, 249, 0.8);
+}
+
+.matter-editor input,
+.matter-editor select {
+    width: 100%;
+    min-width: 0;
+    padding: 5px 6px;
+    font-size: 12px;
+}
+
+.matter-editor td:last-child,
+.matter-editor th:last-child {
+    width: 50px;
+    text-align: center;
+}
+
+.matter-editor .matter-delete {
+    min-height: 28px;
+    padding: 4px 8px;
+    color: #fff;
+    background: #cc0000;
+    border-color: #cc0000;
+    font-size: 12px;
 }
 
 .tool-button {
@@ -1181,6 +1283,21 @@ body.dark-mode .log-container .log-line.warning .action {
     color: #ffd166;
 }
 
+body.dark-mode .matter-section {
+    border-color: rgba(129, 161, 193, 0.22);
+    background: rgba(17, 24, 39, var(--ui-footer-opacity));
+}
+
+body.dark-mode .matter-editor th {
+    color: #a9b4c2;
+    background: rgba(15, 23, 42, var(--ui-footer-opacity));
+}
+
+body.dark-mode .matter-editor th,
+body.dark-mode .matter-editor td {
+    border-top-color: rgba(129, 161, 193, 0.2);
+}
+
 body.dark-mode .footer {
     border-top-color: rgba(129, 161, 193, 0.2);
 }
@@ -1292,6 +1409,13 @@ body.dark-mode.custom-background::after {
     }
 
     .background-settings {
+        flex-wrap: wrap;
+        overflow-x: visible;
+        gap: 10px 12px;
+    }
+
+    .background-controls {
+        flex: 1 1 100%;
         flex-wrap: wrap;
         overflow-x: visible;
         gap: 10px 12px;

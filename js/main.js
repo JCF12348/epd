@@ -754,6 +754,9 @@ function updateDitcherOptions() {
   if (canvasSize) document.getElementById('canvasSize').value = canvasSize;
 
   updateCanvasSize(); // always update image
+  if (paintManager && typeof paintManager.refreshMatterTemplatePalette === 'function') {
+    paintManager.refreshMatterTemplatePalette();
+  }
 }
 
 function updateDriverMeta(option) {
@@ -1090,6 +1093,16 @@ function closeBackgroundSettings() {
   if (modal) modal.hidden = true;
 }
 
+function toggleBackgroundControls(forceOpen) {
+  const panel = document.getElementById('backgroundControls');
+  const button = document.getElementById('toggleBackgroundControls');
+  if (!panel || !button) return;
+  const show = typeof forceOpen === 'boolean' ? forceOpen : panel.hidden;
+  panel.hidden = !show;
+  button.classList.toggle('active', show);
+  button.setAttribute('aria-expanded', String(show));
+}
+
 function resetBackgroundAdjustments() {
   savePageBackgroundSettings(DEFAULT_PAGE_BACKGROUND_SETTINGS);
 }
@@ -1221,6 +1234,7 @@ function initEventHandlers() {
   document.getElementById("pageBackgroundFile").addEventListener("change", (e) => {
     setPageBackgroundFromFile(e.target.files[0]);
   });
+  document.getElementById("toggleBackgroundControls").addEventListener("click", () => toggleBackgroundControls());
   document.getElementById("openBackgroundSettings").addEventListener("click", openBackgroundSettings);
   document.getElementById("closeBackgroundSettings").addEventListener("click", closeBackgroundSettings);
   document.getElementById("doneBackgroundSettings").addEventListener("click", closeBackgroundSettings);
@@ -1257,6 +1271,11 @@ function initEventHandlers() {
   });
   document.getElementById("glassClarityRange").addEventListener("input", (e) => {
     saveGlassClarity(e.target.value);
+  });
+  document.getElementById("ditherMode").addEventListener("change", () => {
+    if (paintManager && typeof paintManager.refreshMatterTemplatePalette === 'function') {
+      paintManager.refreshMatterTemplatePalette();
+    }
   });
   document.getElementById("ditherStrength").addEventListener("input", (e) => {
     document.getElementById("ditherStrengthValue").innerText = parseFloat(e.target.value).toFixed(1);
