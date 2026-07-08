@@ -6,7 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>墨水屏日历</title>
 	<link rel="shortcut icon" type="image/png" href="favicon.png">
-	<link rel="stylesheet" href="css/main.css?v=2026070728">
+	<link rel="stylesheet" href="css/main.css?v=2026070803">
 </head>
 
 <body>
@@ -212,13 +212,15 @@
 							<option value="#0000FF">蓝色</option>
 							<option value="#FFFFFF">白色</option>
 						</select>
-						<label for="brush-size">粗细:</label>
-						<input type="number" id="brush-size" value="2" min="1" max="100">
-						<input type="range" id="brush-size-range" value="2" min="1" max="100">
+						<span class="brush-size-controls">
+							<label for="brush-size">粗细:</label>
+							<input type="number" id="brush-size" value="2" min="1" max="100">
+							<input type="range" id="brush-size-range" value="2" min="1" max="100">
+						</span>
 					</div>
 				</div>
 				<div class="flex-container canvas-tools">
-					<div class="flex-group text-tools">
+					<div class="flex-group text-tools shared-font-tools">
 						<label for="font-family">字体:</label>
 						<select id="font-family">
 							<option value="Arial">Arial</option>
@@ -251,9 +253,11 @@
 							<option value="WenQuanYi Micro Hei">文泉驿微米黑</option>
 							</optgroup>
 						</select>
-						<label for="font-size">大小:</label>
-						<input type="number" id="font-size" value="16" min="1" max="100">
-						<input type="range" id="font-size-range" value="16" min="1" max="100">
+						<span class="text-size-controls">
+							<label for="font-size">大小:</label>
+							<input type="number" id="font-size" value="16" min="1" max="100">
+							<input type="range" id="font-size-range" value="16" min="1" max="100">
+						</span>
 					</div>
 					<div class="flex-group text-tools">
 						<input type="text" id="text-input" placeholder="输入文字" style="width:150px">
@@ -262,17 +266,9 @@
 						<button id="add-text-btn" class="primary">添加文字</button>
 					</div>
 					<div class="flex-group todo-tools">
-						<label for="todo-font-family">字体:</label>
-						<select id="todo-font-family">
-							<option value="SimHei" selected>黑体</option>
-							<option value="Microsoft Yahei">微软雅黑</option>
-							<option value="SimSun">宋体</option>
-							<option value="KaiTi">楷体</option>
-							<option value="Arial">Arial</option>
-						</select>
 						<label for="todo-font-size">大小:</label>
-						<input type="number" id="todo-font-size" value="16" min="8" max="80">
-						<input type="range" id="todo-font-size-range" value="16" min="8" max="80">
+						<input type="number" id="todo-font-size" value="16" min="8" max="100">
+						<input type="range" id="todo-font-size-range" value="16" min="8" max="100">
 					</div>
 					<div class="flex-group todo-tools">
 						<input type="text" id="todo-input" placeholder="输入待办事项" style="width:170px">
@@ -293,14 +289,6 @@
 						<input type="number" id="schedule-days" value="5" min="1" max="7">
 						<label for="schedule-classes">节数:</label>
 						<input type="number" id="schedule-classes" value="6" min="1" max="12">
-						<label for="schedule-font-family">字体:</label>
-						<select id="schedule-font-family">
-							<option value="SimHei" selected>黑体</option>
-							<option value="Microsoft Yahei">微软雅黑</option>
-							<option value="SimSun">宋体</option>
-							<option value="KaiTi">楷体</option>
-							<option value="Arial">Arial</option>
-						</select>
 						<label for="schedule-font-size">字号:</label>
 						<input type="number" id="schedule-font-size" value="12" min="6" max="32">
 						<button id="schedule-font-decrease-btn" title="减小字号">-</button>
@@ -430,7 +418,7 @@
 		</div>
 	</div>
 	<script type="text/javascript" src="js/dithering.js?v=2026070702"></script>
-	<script type="text/javascript" src="js/paint.js?v=2026070705"></script>
+	<script type="text/javascript" src="js/paint.js?v=2026070804"></script>
 	<script type="text/javascript" src="js/crop.js?v=20251109"></script>
 	<script type="text/javascript" src="js/main.js?v=2026070718"></script>
 </body>

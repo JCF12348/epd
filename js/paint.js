@@ -262,8 +262,7 @@ class PaintManager {
     document.getElementById('todo-font-size').addEventListener('change', (e) => this.updateSelectedTodoFontSize(e.target.value, true));
     document.getElementById('todo-font-size-range').addEventListener('input', (e) => this.updateSelectedTodoFontSize(e.target.value, false));
     document.getElementById('todo-font-size-range').addEventListener('change', (e) => this.updateSelectedTodoFontSize(e.target.value, true));
-    document.getElementById('font-family').addEventListener('change', () => this.updateSelectedTextStyle(true));
-    document.getElementById('todo-font-family').addEventListener('change', () => this.updateSelectedTodoStyle(true));
+    document.getElementById('font-family').addEventListener('change', () => this.updateSharedFontFamily(true));
 
     document.getElementById('toggle-todo-delete-btn').addEventListener('click', () => {
       this.showTodoDeleteButtons = !this.showTodoDeleteButtons;
@@ -290,12 +289,6 @@ class PaintManager {
       if (this.scheduleData) this.redrawAll();
       this.markCanvasChanged();
     });
-    document.getElementById('schedule-font-family').addEventListener('change', (e) => {
-      this.scheduleFontFamily = e.target.value;
-      if (this.scheduleData) this.redrawAll();
-      this.markCanvasChanged();
-    });
-
     document.getElementById('schedule-move-up-btn').addEventListener('click', () => this.moveSchedule(0, -10));
     document.getElementById('schedule-move-down-btn').addEventListener('click', () => this.moveSchedule(0, 10));
     document.getElementById('schedule-move-left-btn').addEventListener('click', () => this.moveSchedule(-10, 0));
@@ -740,6 +733,91 @@ class PaintManager {
     return { width, height: fontSize * 1.2, fontSize };
   }
 
+  drawCanvasText(text, x, y, font, color) {
+    this.ctx.font = font;
+    this.ctx.fillStyle = color;
+    this.ctx.fillText(text, x, y);
+    return this.getTextMetrics(text, font);
+  }
+
+  drawSolidLine(x, y, width, height, color = '#000000') {
+    this.ctx.fillStyle = color;
+    this.ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(width)), Math.max(1, Math.round(height)));
+  }
+
+  measureTextWidth(text, font) {
+    this.ctx.font = font;
+    return this.ctx.measureText(text).width;
+  }
+
+  wrapTextForWidth(text, font, maxWidth) {
+    const sourceLines = String(text || '').split('\n');
+    const lines = [];
+
+    sourceLines.forEach(sourceLine => {
+      if (sourceLine === '') {
+        lines.push('');
+        return;
+      }
+
+      let current = '';
+      for (const char of sourceLine) {
+        const next = current + char;
+        if (current && this.measureTextWidth(next, font) > maxWidth) {
+          lines.push(current);
+          current = char;
+        } else {
+          current = next;
+        }
+      }
+      if (current) lines.push(current);
+    });
+
+    return lines.length > 0 ? lines : [''];
+  }
+
+  fitScheduleText(text, baseFontSize, family, maxWidth, maxHeight) {
+    let fontSize = Math.max(6, baseFontSize);
+    let lines = [];
+    let lineHeight = fontSize * 1.18;
+
+    while (fontSize >= 6) {
+      const font = `${fontSize}px ${family}`;
+      lines = this.wrapTextForWidth(text, font, maxWidth);
+      lineHeight = Math.max(7, fontSize * 1.18);
+      if (lines.length * lineHeight <= maxHeight) break;
+      fontSize--;
+    }
+
+    return { fontSize, lines, lineHeight };
+  }
+
+  isMostlyTextTemplateCanvas() {
+    const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height).data;
+    const step = Math.max(4, Math.floor(Math.sqrt(this.canvas.width * this.canvas.height) / 32));
+    let sampled = 0;
+    let nonWhite = 0;
+
+    for (let y = 0; y < this.canvas.height; y += step) {
+      for (let x = 0; x < this.canvas.width; x += step) {
+        const index = (y * this.canvas.width + x) * 4;
+        sampled++;
+        if (imageData[index] < 245 || imageData[index + 1] < 245 || imageData[index + 2] < 245) {
+          nonWhite++;
+        }
+      }
+    }
+
+    return sampled === 0 || nonWhite / sampled < 0.18;
+  }
+
+  preferNoDitherForTextTemplate() {
+    const ditherAlg = document.getElementById('ditherAlg');
+    if (ditherAlg && ditherAlg.value !== 'none' && this.isMostlyTextTemplateCanvas()) {
+      ditherAlg.value = 'none';
+    }
+  }
+
   cloneImageData(imageData) {
     return new ImageData(
       new Uint8ClampedArray(imageData.data),
@@ -787,6 +865,18 @@ class PaintManager {
     return `${fontStyle}${size}px ${family}`;
   }
 
+  getSharedFontFamily() {
+    const fontFamily = document.getElementById('font-family');
+    return fontFamily ? fontFamily.value : 'Arial';
+  }
+
+  setSharedFontFamily(family) {
+    const fontFamily = document.getElementById('font-family');
+    if (!fontFamily) return;
+    const exists = [...fontFamily.options].some(option => option.value === family);
+    if (exists) fontFamily.value = family;
+  }
+
   syncRangeAndNumber(numberId, rangeId, value) {
     const numberInput = document.getElementById(numberId);
     const rangeInput = document.getElementById(rangeId);
@@ -825,7 +915,7 @@ class PaintManager {
     this.selectedTextElement = null;
     const parts = this.getFontParts(todoItem.font);
     document.getElementById('todo-input').value = todoItem.text;
-    document.getElementById('todo-font-family').value = parts.family;
+    this.setSharedFontFamily(parts.family);
     this.syncRangeAndNumber('todo-font-size', 'todo-font-size-range', parts.size);
     this.todoBold = /\bbold\b/.test(todoItem.font);
     this.todoItalic = /\bitalic\b/.test(todoItem.font);
@@ -847,10 +937,10 @@ class PaintManager {
   }
 
   updateSelectedTodoFontSize(value, commitHistory) {
-    const size = Math.max(8, Math.min(80, parseInt(value, 10) || 16));
+    const size = Math.max(8, Math.min(100, parseInt(value, 10) || 16));
     this.syncRangeAndNumber('todo-font-size', 'todo-font-size-range', size);
     if (!this.selectedTodoItem) return;
-    this.selectedTodoItem.font = this.buildFont(size, document.getElementById('todo-font-family').value, this.todoBold, this.todoItalic);
+    this.selectedTodoItem.font = this.buildFont(size, this.getSharedFontFamily(), this.todoBold, this.todoItalic);
     this.redrawAll();
     this.markCanvasChanged();
     if (commitHistory) this.saveToHistory();
@@ -868,10 +958,37 @@ class PaintManager {
   updateSelectedTodoStyle(commitHistory) {
     if (!this.selectedTodoItem) return;
     const size = parseInt(document.getElementById('todo-font-size').value, 10) || this.getFontParts(this.selectedTodoItem.font).size;
-    this.selectedTodoItem.font = this.buildFont(size, document.getElementById('todo-font-family').value, this.todoBold, this.todoItalic);
+    this.selectedTodoItem.font = this.buildFont(size, this.getSharedFontFamily(), this.todoBold, this.todoItalic);
     this.redrawAll();
     this.markCanvasChanged();
     if (commitHistory) this.saveToHistory();
+  }
+
+  updateSharedFontFamily(commitHistory) {
+    let changed = false;
+
+    if (this.selectedTextElement) {
+      this.updateSelectedTextStyle(false);
+      changed = true;
+    }
+
+    if (this.selectedTodoItem) {
+      this.updateSelectedTodoStyle(false);
+      changed = true;
+    }
+
+    if (this.currentTool === 'schedule' || this.scheduleData) {
+      this.scheduleFontFamily = this.getSharedFontFamily();
+      if (this.scheduleData) {
+        this.redrawAll();
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this.markCanvasChanged();
+      if (commitHistory) this.saveToHistory();
+    }
   }
 
   cancelTodoPlacement() {
@@ -895,9 +1012,10 @@ class PaintManager {
     const point = this.getCanvasPoint(e);
     const todo = document.getElementById('todo-input').value;
     const fontSize = document.getElementById('todo-font-size').value;
-    const fontFamily = document.getElementById('todo-font-family').value;
+    const fontFamily = this.getSharedFontFamily();
 
     this.ensureBaseImageData();
+    this.preferNoDitherForTextTemplate();
 
     let fontStyle = '';
     if (this.todoItalic) fontStyle += 'italic ';
@@ -925,27 +1043,22 @@ class PaintManager {
   }
 
   drawTodoItem(todoItem) {
-    this.ctx.font = todoItem.font;
-    this.ctx.fillStyle = todoItem.color;
-    this.ctx.fillText(todoItem.text, todoItem.x, todoItem.y);
-
-    const metrics = this.getTextMetrics(todoItem.text, todoItem.font);
+    const metrics = this.drawCanvasText(todoItem.text, todoItem.x, todoItem.y, todoItem.font, todoItem.color);
     if (todoItem.completed) {
-      this.ctx.strokeStyle = todoItem.color;
-      this.ctx.lineWidth = 1;
-      this.ctx.beginPath();
-      this.ctx.moveTo(todoItem.x, todoItem.y - metrics.fontSize * 0.35);
-      this.ctx.lineTo(todoItem.x + metrics.width, todoItem.y - metrics.fontSize * 0.35);
-      this.ctx.stroke();
+      this.drawSolidLine(
+        todoItem.x,
+        todoItem.y - metrics.fontSize * 0.42,
+        metrics.width,
+        Math.max(1, Math.ceil(metrics.fontSize / 12)),
+        todoItem.color
+      );
     }
 
     if (this.showTodoDeleteButtons) {
       todoItem.deleteButtonCenterX = todoItem.x + metrics.width + 12;
       todoItem.deleteButtonCenterY = todoItem.y - metrics.fontSize * 0.45;
       todoItem.deleteButtonHitRadius = 10;
-      this.ctx.font = 'bold 14px Arial';
-      this.ctx.fillStyle = '#FF0000';
-      this.ctx.fillText('x', todoItem.deleteButtonCenterX - 4, todoItem.deleteButtonCenterY + 5);
+      this.drawCanvasText('x', todoItem.deleteButtonCenterX - 4, todoItem.deleteButtonCenterY + 5, 'bold 14px Arial', '#FF0000');
     } else {
       todoItem.deleteButtonCenterX = null;
       todoItem.deleteButtonCenterY = null;
@@ -1021,10 +1134,11 @@ class PaintManager {
   createSchedule() {
     this.scheduleDays = parseInt(document.getElementById('schedule-days').value, 10);
     this.scheduleClasses = parseInt(document.getElementById('schedule-classes').value, 10);
-    this.scheduleFontFamily = document.getElementById('schedule-font-family').value;
+    this.scheduleFontFamily = this.getSharedFontFamily();
     this.scheduleFontSize = parseInt(document.getElementById('schedule-font-size').value, 10);
     this.scheduleColor = document.getElementById('schedule-color').value;
     this.ensureBaseImageData();
+    this.preferNoDitherForTextTemplate();
     this.calculateScheduleDimensions();
 
     this.scheduleData = [];
@@ -1062,30 +1176,46 @@ class PaintManager {
 
     const cellWidth = this.scheduleCellWidth;
     const cellHeight = this.scheduleCellHeight;
-    this.ctx.strokeStyle = '#000000';
-    this.ctx.lineWidth = 1;
+    const rows = this.scheduleData.length;
+    const cols = this.scheduleData[0] ? this.scheduleData[0].length : 0;
+    const tableWidth = cols * cellWidth;
+    const tableHeight = rows * cellHeight;
+
+    for (let row = 0; row <= rows; row++) {
+      this.drawSolidLine(this.scheduleStartX, this.scheduleStartY + row * cellHeight, tableWidth + 1, 1);
+    }
+
+    for (let col = 0; col <= cols; col++) {
+      this.drawSolidLine(this.scheduleStartX + col * cellWidth, this.scheduleStartY, 1, tableHeight + 1);
+    }
 
     for (let row = 0; row < this.scheduleData.length; row++) {
       for (let col = 0; col < this.scheduleData[row].length; col++) {
         const x = this.scheduleStartX + col * cellWidth;
         const y = this.scheduleStartY + row * cellHeight;
-        this.ctx.strokeRect(x, y, cellWidth, cellHeight);
 
         const text = this.scheduleData[row][col];
         if (!text) continue;
 
-        const fontSize = this.scheduleCellFontSizes && this.scheduleCellFontSizes[row]
+        const baseFontSize = this.scheduleCellFontSizes && this.scheduleCellFontSizes[row]
           ? this.scheduleCellFontSizes[row][col]
           : this.scheduleFontSize;
-        this.ctx.font = `${fontSize}px ${this.scheduleFontFamily}`;
-        this.ctx.fillStyle = this.scheduleColor;
 
-        const lines = text.split('\n');
-        const lineHeight = fontSize * 1.2;
-        const textStartY = y + (cellHeight - lines.length * lineHeight) / 2 + fontSize * 0.85;
-        lines.forEach((line, lineIndex) => {
-          const textX = x + (cellWidth - this.ctx.measureText(line).width) / 2;
-          this.ctx.fillText(line, textX, textStartY + lineIndex * lineHeight);
+        const horizontalPadding = Math.max(3, Math.floor(cellWidth * 0.08));
+        const verticalPadding = Math.max(2, Math.floor(cellHeight * 0.08));
+        const fitted = this.fitScheduleText(
+          text,
+          baseFontSize,
+          this.scheduleFontFamily,
+          cellWidth - horizontalPadding * 2,
+          cellHeight - verticalPadding * 2
+        );
+        const font = `${fitted.fontSize}px ${this.scheduleFontFamily}`;
+        const textStartY = y + (cellHeight - fitted.lines.length * fitted.lineHeight) / 2 + fitted.fontSize * 0.86;
+        fitted.lines.forEach((line, lineIndex) => {
+          const textWidth = this.measureTextWidth(line, font);
+          const textX = x + (cellWidth - textWidth) / 2;
+          this.drawCanvasText(line, textX, textStartY + lineIndex * fitted.lineHeight, font, this.scheduleColor);
         });
       }
     }
@@ -1093,10 +1223,7 @@ class PaintManager {
     if (this.showScheduleCellIndicator && this.selectedScheduleCell) {
       const x = this.scheduleStartX + this.selectedScheduleCell.col * cellWidth;
       const y = this.scheduleStartY + this.selectedScheduleCell.row * cellHeight;
-      this.ctx.fillStyle = '#000000';
-      this.ctx.beginPath();
-      this.ctx.arc(x + cellWidth - 6, y + 6, 3, 0, Math.PI * 2);
-      this.ctx.fill();
+      this.drawSolidLine(x + cellWidth - 9, y + 4, 5, 5);
     }
   }
 
@@ -1201,6 +1328,7 @@ class PaintManager {
       this.scheduleDays = scheduleCache.scheduleDays || this.scheduleDays;
       this.scheduleClasses = scheduleCache.scheduleClasses || this.scheduleClasses;
       this.scheduleFontFamily = scheduleCache.scheduleFontFamily || this.scheduleFontFamily;
+      this.setSharedFontFamily(this.scheduleFontFamily);
       this.scheduleFontSize = scheduleCache.scheduleFontSize || this.scheduleFontSize;
       this.scheduleColor = scheduleCache.scheduleColor || this.scheduleColor;
       this.scheduleStartX = scheduleCache.scheduleStartX || this.scheduleStartX;
@@ -1300,9 +1428,7 @@ class PaintManager {
   redrawTextElements() {
     // Redraw all text elements after dithering
     this.textElements.forEach(item => {
-      this.ctx.font = item.font;
-      this.ctx.fillStyle = item.color;
-      this.ctx.fillText(item.text, item.x, item.y);
+      this.drawCanvasText(item.text, item.x, item.y, item.font, item.color);
     });
   }
 
