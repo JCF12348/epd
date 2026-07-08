@@ -144,7 +144,7 @@ body.custom-background::after {
 .sub-nav-inner {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 16px;
     width: min(100%, 1080px);
     height: 52px;
@@ -162,7 +162,8 @@ body.custom-background::after {
 
 .sub-nav-meta {
     color: var(--body-muted);
-    font-size: 14px;
+    font-size: 16px;
+    font-weight: 500;
     line-height: 1.29;
 }
 
@@ -1265,10 +1266,6 @@ body.dark-mode.custom-background::after {
 
     .global-nav-inner {
         gap: 18px;
-    }
-
-    .sub-nav-meta {
-        display: none;
     }
 
     h3 {
