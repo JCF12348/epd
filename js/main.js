@@ -8,7 +8,7 @@ let currentPinsValue = '';
 let ditherSourceImageData = null;
 let ditherPreviewActive = false;
 let pageExitDisconnecting = false;
-let slotState = { count: 0, usedMask: 0, selected: null };
+let slotState = { count: 0, usedMask: 0, selected: null, fingerprints: [] };
 let slotReadState = null;
 let slotImageCache = new Map();
 let slotImageCacheScope = '';
@@ -140,7 +140,7 @@ function resetVariables(options = {}) {
   msgIndex = 0;
   bleWriteChain = Promise.resolve();
   currentPinsValue = '';
-  slotState = { count: 0, usedMask: 0, selected: null };
+  slotState = { count: 0, usedMask: 0, selected: null, fingerprints: [] };
   if (slotReadTimer != null) clearTimeout(slotReadTimer);
   slotReadTimer = null;
   slotReadState = null;
@@ -339,6 +339,14 @@ function createSlotPreviewDataUrl(sourceImageData) {
   return dataUrl;
 }
 
+function normalizeSlotFingerprint(value) {
+  return typeof value === 'string' && /^[0-9a-f]{8}$/i.test(value) ? value.toUpperCase() : null;
+}
+
+function slotCacheMatchesFingerprint(entry, fingerprint) {
+  return fingerprint == null || normalizeSlotFingerprint(entry && entry.fingerprint) === fingerprint;
+}
+
 function loadSlotImageCache() {
   const scope = getSlotImageCacheScope();
   if (scope !== slotImageCacheScope) {
@@ -349,21 +357,36 @@ function loadSlotImageCache() {
   for (let slot = 0; slot < slotState.count; slot++) {
     const used = (slotState.usedMask & (1 << slot)) !== 0;
     const pending = slotPreviewPending.has(slot);
+    const fingerprint = slotState.fingerprints[slot] || null;
+    let staleCacheRemoved = false;
     if (!used && !pending) {
       removeSlotImageCache(slot);
       continue;
     }
 
+    const currentEntry = slotImageCache.get(slot);
+    if (used && !pending && currentEntry && !slotCacheMatchesFingerprint(currentEntry, fingerprint)) {
+      slotImageCache.delete(slot);
+      try { localStorage.removeItem(getSlotImageCacheKey(slot)); } catch (_) { }
+      staleCacheRemoved = true;
+    }
+
     try {
       const stored = localStorage.getItem(getSlotImageCacheKey(slot));
-      if (!stored) continue;
-      const entry = JSON.parse(stored);
-      if (entry && entry.dataUrl && entry.dataUrl.startsWith('data:image/')) {
-        const currentEntry = slotImageCache.get(slot);
-        const currentSavedAt = currentEntry && Number(currentEntry.savedAt) || 0;
-        const storedSavedAt = Number(entry.savedAt) || 0;
-        if (!currentEntry || storedSavedAt > currentSavedAt) {
-          slotImageCache.set(slot, entry);
+      if (stored) {
+        const entry = JSON.parse(stored);
+        if (entry && entry.dataUrl && entry.dataUrl.startsWith('data:image/')) {
+          if (used && !pending && !slotCacheMatchesFingerprint(entry, fingerprint)) {
+            localStorage.removeItem(getSlotImageCacheKey(slot));
+            staleCacheRemoved = true;
+          } else {
+            const cachedEntry = slotImageCache.get(slot);
+            const currentSavedAt = cachedEntry && Number(cachedEntry.savedAt) || 0;
+            const storedSavedAt = Number(entry.savedAt) || 0;
+            if (!cachedEntry || storedSavedAt > currentSavedAt) {
+              slotImageCache.set(slot, entry);
+            }
+          }
         }
       }
     } catch (error) {
@@ -374,8 +397,11 @@ function loadSlotImageCache() {
     if (used && pending) {
       slotPreviewPending.delete(slot);
       const entry = slotImageCache.get(slot);
-      if (entry && entry.pending) saveSlotImageCache(slot, { ...entry, pending: false });
+      if (entry && entry.pending) {
+        saveSlotImageCache(slot, { ...entry, fingerprint, pending: false });
+      }
     }
+    if (staleCacheRemoved) addLog(`槽位 ${slot + 1} 已在其他浏览器或设备更新，旧预览已清除。`);
   }
 }
 
@@ -420,6 +446,7 @@ function cacheCurrentSlotPreview(slot, processedData, mode) {
       colorId,
       dataUrl,
       previewKind: 'original',
+      fingerprint: null,
       pending: true,
       savedAt: new Date().getTime()
     });
@@ -550,12 +577,25 @@ async function refreshSlots() {
 }
 
 function applySlotsMessage(message) {
-  const match = /^slots=(\d+)\s+(0x[0-9a-f]+|\d+)(?:\s+(\d+))?$/i.exec(message.trim());
-  if (!match) return false;
+  const parts = message.trim().split(/\s+/);
+  const countMatch = /^slots=(\d+)$/.exec(parts[0] || '');
+  if (!countMatch || parts.length < 2 || !/^(?:0x[0-9a-f]+|\d+)$/i.test(parts[1])) return false;
 
-  slotState.count = parseInt(match[1], 10);
-  slotState.usedMask = Number(match[2]);
-  slotState.selected = match[3] == null ? null : parseInt(match[3], 10);
+  const count = parseInt(countMatch[1], 10);
+  let fingerprintStart = 2;
+  let selected = null;
+  if (parts[2] != null && /^\d+$/.test(parts[2])) {
+    selected = parseInt(parts[2], 10);
+    fingerprintStart = 3;
+  }
+  const fingerprints = parts.slice(fingerprintStart, fingerprintStart + count)
+    .map(normalizeSlotFingerprint);
+  slotState = {
+    count,
+    usedMask: Number(parts[1]),
+    selected,
+    fingerprints
+  };
   loadSlotImageCache();
   const eraseAllCompleted = slotEraseAllPending && slotState.usedMask === 0;
   if (slotEraseAllPending && !eraseAllCompleted) {
@@ -1003,6 +1043,7 @@ function finishSlotImageRead() {
         colorId: meta.colorId,
         dataUrl: createSlotPreviewDataUrl(imageData),
         previewKind: 'device',
+        fingerprint: slotState.fingerprints[meta.slot] || null,
         savedAt: new Date().getTime()
       });
     }
