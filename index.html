@@ -6,7 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>墨水屏日历</title>
 	<link rel="shortcut icon" type="image/png" href="favicon.png">
-	<link rel="stylesheet" href="css/main.css?v=2026072201">
+	<link rel="stylesheet" href="css/main.css?v=2026072304">
 </head>
 
 <body>
@@ -114,7 +114,7 @@
 		</fieldset>
 		<fieldset id="image-panel">
 			<legend>蓝牙传图</legend>
-			<div class="flex-container file-picker-row">
+			<div id="imageDropZone" class="flex-container file-picker-row" title="可选择图片，也可将图片拖放到这里">
 				<label for="imageFile" class="file-picker-title">图片文件:</label>
 				<input type="file" id="imageFile" accept=".png,.jpg,.bmp,.webp,.jpeg" onchange="updateImage()">
 			</div>
@@ -203,12 +203,14 @@
 				</div>
 			</div>
 			<div class="status-bar"><b>状态：</b><span id="status"></span></div>
-			<div class="flex-container">
-				<div class="flex-group">
-					<button type="button" class="secondary debug" onclick="rotateCanvas()">旋转画布</button>
-					<button type="button" class="secondary" onclick="clearCanvas()">清除画布</button>
+			<div class="flex-container image-actions-row">
+				<div class="flex-group image-send-actions" role="group" aria-label="发送和图片方向操作">
 					<button type="button" class="secondary debug" onclick="downloadDataArray()">下载数组</button>
 					<button id="sendimgbutton" type="button" class="primary" onclick="sendimg()">发送图片</button>
+					<button id="rotate-left" type="button" title="向左旋转" aria-label="向左旋转" class="tool-button">↺</button>
+					<button id="rotate-right" type="button" title="向右旋转" aria-label="向右旋转" class="tool-button">↻</button>
+					<button id="reset-transform" type="button" title="重置图片位置、缩放和旋转" aria-label="重置图片变换" class="tool-button">⟲</button>
+					<button id="clear-canvas" type="button" title="清除当前图片和画布" aria-label="清除画布" class="tool-button">⌫</button>
 				</div>
 			</div>
 			<div class="canvas-container">
@@ -376,15 +378,6 @@
 							</table>
 						</div>
 					</div>
-					<div class="flex-group crop-tools">
-						<button id="crop-zoom-in" title="放大" class="secondary">+</button>
-						<button id="crop-zoom-out" title="缩小" class="secondary">-</button>
-						<button id="crop-move-left" title="左移">⇦</button>
-						<button id="crop-move-up" title="上移">⇧</button>
-						<button id="crop-move-down" title="下移">⇩</button>
-						<button id="crop-move-right" title="右移">⇨</button>
-						<button class="primary" onclick="applyDither()">完成</button>
-					</div>
 				</div>
 			</div>
 		</fieldset>
@@ -481,9 +474,9 @@
 		</div>
 	</div>
 	<script type="text/javascript" src="js/dithering.js?v=2026070702"></script>
-	<script type="text/javascript" src="js/paint.js?v=2026070818"></script>
-	<script type="text/javascript" src="js/crop.js?v=20251109"></script>
-	<script type="text/javascript" src="js/main.js?v=2026072209"></script>
+	<script type="text/javascript" src="js/paint.js?v=2026072301"></script>
+	<script type="text/javascript" src="js/crop.js?v=2026072302"></script>
+	<script type="text/javascript" src="js/main.js?v=2026072302"></script>
 </body>
 
 </html>

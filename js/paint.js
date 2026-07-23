@@ -148,6 +148,7 @@ class PaintManager {
       this.scheduleBaseImageData = state.scheduleBaseImageData ? this.cloneImageData(state.scheduleBaseImageData) : null;
 
       this.updateUndoRedoButtons();
+      this.markCanvasChanged();
     }
   }
 
@@ -402,6 +403,9 @@ class PaintManager {
     if (this.hasOverlayElements()) {
       this.redrawAll();
     }
+    if (typeof cropManager !== 'undefined' && cropManager && cropManager.refreshInteractionState) {
+      cropManager.refreshInteractionState();
+    }
   }
 
   createBrushCursor() {
@@ -649,6 +653,7 @@ class PaintManager {
   }
 
   onTouchStart(e) {
+    if (!this.currentTool) return;
     e.preventDefault();
     const touch = e.touches[0];
 
@@ -673,6 +678,7 @@ class PaintManager {
   }
 
   onTouchMove(e) {
+    if (!this.currentTool) return;
     e.preventDefault();
     const touch = e.touches[0];
     const mouseEvent = new MouseEvent('mousemove', {
@@ -683,6 +689,7 @@ class PaintManager {
   }
 
   onTouchEnd(e) {
+    if (!this.currentTool) return;
     e.preventDefault();
     this.endPaint();
   }
@@ -733,6 +740,9 @@ class PaintManager {
   markCanvasChanged() {
     if (typeof resetDitherPreviewSource === 'function') {
       resetDitherPreviewSource();
+    }
+    if (typeof cropManager !== 'undefined' && cropManager && cropManager.refreshInteractionState) {
+      cropManager.refreshInteractionState();
     }
   }
 

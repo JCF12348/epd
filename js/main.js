@@ -1320,11 +1320,7 @@ function convertGDEM037F51(data, srcWidth = canvas.width, srcHeight = canvas.hei
   return output;
 }
 async function sendimg(options = {}) {
-  if (cropManager.isCropMode()) {
-    alert("请先完成图片裁剪！发送已取消。");
-    return;
-  }
-
+  if (cropManager) cropManager.commitPendingTransform(false);
   const canvasSize = document.getElementById('canvasSize').value;
   const ditherMode = document.getElementById('ditherMode').value;
   const epdDriverSelect = document.getElementById('epddriver');
@@ -1421,11 +1417,7 @@ async function sendimg(options = {}) {
 }
 
 function downloadDataArray() {
-  if (cropManager.isCropMode()) {
-    alert("请先完成图片裁剪！下载已取消。");
-    return;
-  }
-
+  if (cropManager) cropManager.commitPendingTransform(false);
   const mode = document.getElementById('ditherMode').value;
   const processedData = processCanvasImageData();
 
@@ -1760,29 +1752,45 @@ function setCanvasTitle(title) {
   }
 }
 
-function updateImage() {
+function renderTransformedImagePreview(sourceImageData, commitHistory = false) {
+  ditherSourceImageData = cloneImageData(sourceImageData);
+  ditherPreviewActive = true;
+  const settings = getDitherSettings();
+  const processedData = processCanvasImageData();
+  const finalImageData = decodeProcessedData(processedData, canvas.width, canvas.height, settings.mode);
+  ctx.putImageData(finalImageData, 0, 0);
+
+  if (paintManager && paintManager.setBaseImageData) paintManager.setBaseImageData();
+  if (commitHistory && paintManager) {
+    paintManager.clearHistory();
+    paintManager.saveToHistory();
+  }
+}
+
+function resetPaintForImageLoad() {
+  if (!paintManager) return;
+  paintManager.setActiveTool(null, '');
+  paintManager.clearElements();
+  paintManager.clearHistory();
+}
+
+function updateImage(file = null) {
   const imageFile = document.getElementById('imageFile');
-  if (imageFile.files.length == 0) {
+  const selectedFile = file || (imageFile.files.length > 0 ? imageFile.files[0] : null);
+  if (!selectedFile) {
+    if (cropManager) cropManager.clearImage();
     fillCanvas('white');
     return;
   }
 
-  const image = new Image();
-  image.onload = function () {
-    URL.revokeObjectURL(this.src);
-    resetDitherPreviewSource();
-    if (image.width / image.height == canvas.width / canvas.height) {
-      if (cropManager.isCropMode()) cropManager.exitCropMode();
-      ctx.drawImage(image, 0, 0, image.width, image.height, 0, 0, canvas.width, canvas.height);
-      convertDithering();
-      if (paintManager.setBaseImageData) paintManager.setBaseImageData();
-    } else {
-      alert(`图片宽高比例与画布不匹配，将进入裁剪模式。\n请放大图片后移动图片使其充满画布, 再点击"完成"按钮。`);
-      paintManager.setActiveTool(null, '');
-      cropManager.initializeCrop();
-    }
-  };
-  image.src = URL.createObjectURL(imageFile.files[0]);
+  resetDitherPreviewSource();
+  resetPaintForImageLoad();
+  cropManager.loadFile(selectedFile).catch((error) => {
+    cropManager.clearImage();
+    fillCanvas('white');
+    addLog(`图片读取失败：${error.message || error}`);
+    alert('图片文件无法读取，请重新选择。');
+  });
 }
 
 function updateCanvasSize() {
@@ -1822,44 +1830,16 @@ function updateDriverMeta(option) {
   meta.textContent = `${driverName} · Web Bluetooth`;
 }
 
-function rotateCanvas() {
-  resetDitherPreviewSource();
-  const currentWidth = canvas.width;
-  const currentHeight = canvas.height;
-
-  // Capture current canvas content
-  const imageData = ctx.getImageData(0, 0, currentWidth, currentHeight);
-
-  // Swap canvas dimensions
-  canvas.width = currentHeight;
-  canvas.height = currentWidth;
-
-  // Create temporary canvas for rotation
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = currentWidth;
-  tempCanvas.height = currentHeight;
-  const tempCtx = tempCanvas.getContext('2d');
-  tempCtx.putImageData(imageData, 0, 0);
-
-  // Draw rotated image on the resized canvas
-  ctx.translate(canvas.width / 2, canvas.height / 2);
-  ctx.rotate(90 * Math.PI / 180);
-  ctx.drawImage(tempCanvas, -currentWidth / 2, -currentHeight / 2);
-  ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
-
-  paintManager.clearHistory(); // Clear history as canvas size changed
-  paintManager.clearElements(); // Clear stored text positions and line segments
-  if (paintManager.setBaseImageData) paintManager.setBaseImageData();
-  paintManager.saveToHistory(); // Save rotated canvas to history
-}
-
 function clearCanvas() {
   if (confirm('清除画布内容?')) {
+    if (cropManager) cropManager.clearImage();
+    const imageFile = document.getElementById('imageFile');
+    if (imageFile) imageFile.value = '';
     fillCanvas('white');
     paintManager.clearElements(); // Clear stored text positions and line segments
     if (paintManager.setBaseImageData) paintManager.setBaseImageData();
     if (paintManager.clearScheduleCache) paintManager.clearScheduleCache();
-    if (cropManager.isCropMode()) cropManager.exitCropMode();
+    paintManager.clearHistory();
     paintManager.saveToHistory(); // Save cleared canvas to history
     return true;
   }
@@ -1915,14 +1895,7 @@ function convertDithering() {
 }
 
 function applyDither() {
-  if (cropManager.isCropMode()) {
-    cropManager.finishCrop(() => {
-      resetDitherPreviewSource();
-      convertDithering();
-    });
-  } else {
-    convertDithering();
-  }
+  convertDithering();
 }
 
 function setDitherAdjustment(id, value, digits) {
@@ -2283,6 +2256,34 @@ function initEventHandlers() {
   initGlobalNavActive();
   initRangeFill();
   updateDriverMeta();
+  document.getElementById("clear-canvas").addEventListener("click", clearCanvas);
+  const imageDropZone = document.getElementById('imageDropZone');
+  const imageFile = document.getElementById('imageFile');
+  if (imageDropZone && imageFile) {
+    imageDropZone.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      imageDropZone.classList.add('drag-over');
+    });
+    imageDropZone.addEventListener('dragleave', () => imageDropZone.classList.remove('drag-over'));
+    imageDropZone.addEventListener('drop', (event) => {
+      event.preventDefault();
+      imageDropZone.classList.remove('drag-over');
+      const file = event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files[0] : null;
+      if (!file || !file.type.startsWith('image/')) {
+        addLog('拖放失败：请选择有效的图片文件。');
+        return;
+      }
+      try {
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        imageFile.files = transfer.files;
+      } catch (_) {
+        addLog('浏览器无法同步拖放文件，请改用文件选择按钮。');
+        return;
+      }
+      updateImage(file);
+    });
+  }
   document.getElementById("resetDitherAdjustments").addEventListener("click", resetDitherAdjustments);
   document.getElementById("pageBackgroundFile").addEventListener("change", (e) => {
     setPageBackgroundFromFile(e.target.files[0]);
@@ -2375,6 +2376,7 @@ document.body.onload = () => {
 
   paintManager = new PaintManager(canvas, ctx);
   cropManager = new CropManager(canvas, ctx, paintManager);
+  cropManager.setRenderCallback(renderTransformedImagePreview);
   if (paintManager.setBaseImageData) paintManager.setBaseImageData();
 
   paintManager.initPaintTools();
