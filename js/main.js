@@ -21,6 +21,7 @@ let slotActionPending = false;
 let slotActionTimer = null;
 let slotReadTimer = null;
 let slotEraseAllPending = false;
+let displayErrorActive = false;
 
 const MAX_SLOT_IMAGE_SIZE = 1024 * 1024;
 const DEFAULT_SLOT_READ_RAW_CHUNK_SIZE = 256;
@@ -98,7 +99,7 @@ const canvasSizes = [
   { name: '3.97_800_480', width: 800, height: 480 },
   { name: '3.98_768_552', width: 768, height: 552 },
   { name: '3.98_800_600', width: 800, height: 600 },
-  { name: '3.87_800_552', width: 800, height: 552 },
+  { name: '3.87_800_480', width: 800, height: 480 },
   { name: '9.7_960_680', width: 960, height: 680 },
   { name: '4.2_400_300', width: 400, height: 300 },
   { name: '5.79_792_272', width: 792, height: 272 },
@@ -154,6 +155,7 @@ function resetVariables(options = {}) {
   imageRefreshTimer = null;
   slotActionPending = false;
   slotEraseAllPending = false;
+  displayErrorActive = false;
   if (slotActionTimer != null) clearTimeout(slotActionTimer);
   slotActionTimer = null;
   renderSlotGrid();
@@ -721,13 +723,26 @@ function completeImageRefresh() {
   return true;
 }
 
-async function startSlotSlide() {
+async function startSlotSlide(randomMode = false) {
+  if (slotState.usedMask === 0) {
+    alert('请先存入至少一张图片，再启动轮播。');
+    addLog('轮播未启动：没有可用的图片槽。');
+    return false;
+  }
   const input = document.getElementById('slotSlideMinutes');
   const minutes = Math.max(1, Math.min(65535, parseInt(input.value, 10) || 1));
   input.value = minutes;
-  if (await write(EpdCmd.SET_SLIDE, new Uint8Array([minutes >> 8, minutes & 0xFF]))) {
-    addLog(`图片轮播已启动，间隔 ${minutes} 分钟。`);
+  setSlotActionPending(true);
+  if (await write(EpdCmd.SET_SLIDE, new Uint8Array([minutes >> 8, minutes & 0xFF, randomMode ? 1 : 0]))) {
+    addLog(`${randomMode ? '随机' : '顺序'}轮播已启动，正在立即显示${randomMode ? '随机图片' : '第一张图片'}，间隔 ${minutes} 分钟。`);
+    return true;
   }
+  setSlotActionPending(false);
+  return false;
+}
+
+async function startRandomSlotSlide() {
+  return startSlotSlide(true);
 }
 
 async function stopSlotSlide() {
@@ -1086,6 +1101,7 @@ async function writeImage(data, step = 'bw') {
   addLog(`${stepName}开始传输：${transferSize} 字节，共 ${count} 包。`, '⇑');
 
   for (let chunkIdx = 0; chunkIdx < count; chunkIdx++) {
+    if (displayErrorActive) return false;
     const offset = chunkIdx * chunkSize;
     const chunk = useRle ? rleChunks[chunkIdx] : rawData.slice(offset, offset + chunkSize);
     const currentTime = (new Date().getTime() - startTime) / 1000.0;
@@ -1333,6 +1349,7 @@ async function sendimg(options = {}) {
     if (!confirm("警告：颜色模式和驱动不匹配，是否继续？")) return;
   }
 
+  displayErrorActive = false;
   startTime = new Date().getTime();
   const status = document.getElementById("status");
   status.parentElement.style.display = "block";
@@ -1468,7 +1485,8 @@ function updateButtonStatus(forceDisabled = imageTransferActive || slotActionPen
   document.getElementById("setDriverbutton").disabled = status;
   document.getElementById("refreshSlotsButton").disabled = status;
   document.getElementById("eraseAllSlotsButton").disabled = status || slotState.usedMask === 0 ? 'disabled' : null;
-  document.getElementById("startSlotSlideButton").disabled = status;
+  document.getElementById("startSlotSlideButton").disabled = status || slotState.usedMask === 0 ? 'disabled' : null;
+  document.getElementById("randomSlotSlideButton").disabled = status || slotState.usedMask === 0 ? 'disabled' : null;
   document.getElementById("stopSlotSlideButton").disabled = status;
   renderSlotGrid(forceDisabled);
 }
@@ -1577,6 +1595,24 @@ async function reConnect() {
   setTimeout(async function () { await connect(); }, 300);
 }
 
+function handleDisplayError(code) {
+  const busyTimeout = code === 'busy_timeout';
+  const message = busyTimeout
+    ? '屏幕 BUSY 等待超时，当前驱动可能与屏幕不匹配。请切换对应屏幕驱动后重试，蓝牙连接将保持。'
+    : '设备正在执行其他显示操作，请稍后重试。';
+
+  displayErrorActive = busyTimeout;
+  cancelImageRefreshWait();
+  imageTransferActive = false;
+  if (slotActionPending) setSlotActionPending(false);
+  if (slotReadState) failSlotImageRead(message);
+  const status = document.getElementById('status');
+  status.parentElement.style.display = 'block';
+  setStatus(message);
+  addLog(message, '', 'error');
+  updateButtonStatus();
+}
+
 function handleNotify(value, idx) {
   const data = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   const isImageInfo = data.length >= 4 && data[0] === 0x69 && data[1] === 0x6D &&
@@ -1595,6 +1631,7 @@ function handleNotify(value, idx) {
     if (data.length > 10) epdpins.value += bytes2hex(data.slice(10, 11));
     currentPinsValue = epdpins.value.trim().toLowerCase();
     epddriver.value = bytes2hex(data.slice(7, 8));
+    displayErrorActive = false;
     updateDitcherOptions();
   } else {
     if (textDecoder == null) textDecoder = new TextDecoder();
@@ -1608,8 +1645,11 @@ function handleNotify(value, idx) {
       addLog('开始接收槽位图片。');
     } else if (beginSlotChunk(msg)) {
       // The next notification contains the binary chunk.
+    } else if (msg.startsWith('display_error=')) {
+      handleDisplayError(msg.substring('display_error='.length));
     } else if (msg.startsWith('slot_error=')) {
       const errorMessage = `槽位操作失败：${msg.substring('slot_error='.length)}`;
+      if (slotActionPending) setSlotActionPending(false);
       if (slotReadState) {
         failSlotImageRead(errorMessage);
       } else {

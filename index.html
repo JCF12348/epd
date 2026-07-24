@@ -44,7 +44,8 @@
 						<option value="03" data-color="threeColor" data-size="4.2_400_300">4.2寸 (三色, UC8176)</option>
 						<option value="04" data-color="blackWhiteColor" data-size="4.2_400_300">4.2寸 (黑白, SSD1619)</option>
 						<option value="02" data-color="threeColor" data-size="4.2_400_300">4.2寸 (三色, SSD1619)</option>
-						<option value="05" data-color="fourColor" data-size="4.2_400_300">4.2寸 (四色, JD79668)</option>
+						<option value="05" data-color="fourColor" data-size="4.2_400_300">4.2寸 (四色, JCF)</option>
+						<option value="16" data-color="fourColor" data-size="4.2_400_300">4.2寸 (四色, JD79668)</option>
 						<option value="0d" data-color="fourColor" data-size="3.7_416_240">3.7BWRY (四色, GDEM037F51)</option>
 						<option value="0e" data-color="threeColor" data-size="3.7_416_240">3.7BWR (三色, GDEY037Z03)</option>
 						<option value="0f" data-color="threeColor" data-size="3.7_416_240">3.7BWR (三色, YS4370JS0C3)</option>
@@ -52,7 +53,7 @@
 						<option value="10" data-color="fourColor" data-size="3.98_768_552">3.98寸（四色，SE0398NZ07A0）</option>
 						<option value="11" data-color="fourColor" data-size="3.98_768_552">3.98寸（四色，SE0398NZ07A1）</option>
 						<option value="13" data-color="fourColor" data-size="3.98_768_552" selected>3.98寸（四色，SE0398NZ07-New-A1）</option>
-						<option value="14" data-color="fourColor" data-size="3.87_800_552">3.87寸（四色，KEGM038701E01-J665）</option>
+						<option value="14" data-color="fourColor" data-size="3.87_800_480">3.87寸（四色，KEGM038701E01-J665）</option>
 						<option value="15" data-color="fourColor" data-size="9.7_960_680">9.7寸（四色，GDEY133F91）</option>
 						<option value="06" data-color="blackWhiteColor" data-size="7.5_800_480">7.5寸 (黑白, UC8179)</option>
 						<option value="07" data-color="threeColor" data-size="7.5_800_480">7.5寸 (三色, UC8179)</option>
@@ -107,6 +108,7 @@
 				<input id="slotSlideMinutes" type="number" min="1" max="65535" value="5" inputmode="numeric">
 				<span>分钟</span>
 				<button id="startSlotSlideButton" type="button" class="primary" onclick="startSlotSlide()" disabled>启动轮播</button>
+				<button id="randomSlotSlideButton" type="button" class="secondary" onclick="startRandomSlotSlide()" disabled>随机轮播</button>
 				<button id="stopSlotSlideButton" type="button" class="secondary" onclick="stopSlotSlide()" disabled>停止</button>
 			</div>
 			<div id="slotGrid" class="slot-grid" aria-live="polite"></div>
@@ -134,7 +136,7 @@
 						<option value="3.97_800_480">3.97 (800x480)</option>
 						<option value="3.98_768_552" selected>3.98 (768x552)</option>
 						<option value="3.98_800_600">3.98 (800x600)</option>
-						<option value="3.87_800_552">3.87 (800x552)</option>
+						<option value="3.87_800_480">3.87 (800x480)</option>
 						<option value="9.7_960_680">9.7 (960x680)</option>
 						<option value="4.2_400_300">4.2 (400x300)</option>
 						<option value="5.79_792_272">5.79 (792x272)</option>
@@ -476,7 +478,7 @@
 	<script type="text/javascript" src="js/dithering.js?v=2026070702"></script>
 	<script type="text/javascript" src="js/paint.js?v=2026072301"></script>
 	<script type="text/javascript" src="js/crop.js?v=2026072302"></script>
-	<script type="text/javascript" src="js/main.js?v=2026072302"></script>
+	<script type="text/javascript" src="js/main.js?v=2026072401"></script>
 </body>
 
 </html>
