@@ -71,6 +71,7 @@ const EpdCmd = {
 
   SET_TIME: 0x20,
   SET_WEEK_START: 0x21,
+  SET_LED: 0x22,
 
   WRITE_IMG: 0x30, // v1.6
   SET_SLOT: 0x31,
@@ -84,7 +85,9 @@ const EpdCmd = {
   CFG_ERASE: 0x99,
 };
 
-const EPD_CONFIG_SIZE = 14;
+const LEGACY_EPD_CONFIG_SIZES = [14, 15];
+const EPD_CONFIG_SIZE = 16;
+const LED_CONTROL_MIN_VERSION = 0x40;
 
 const canvasSizes = [
   { name: '1.54_152_152', width: 152, height: 152 },
@@ -138,6 +141,7 @@ function resetVariables(options = {}) {
   gattServer = null;
   epdService = null;
   epdCharacteristic = null;
+  appVersion = null;
   msgIndex = 0;
   bleWriteChain = Promise.resolve();
   currentPinsValue = '';
@@ -1154,6 +1158,27 @@ async function setDriver() {
     updateButtonStatus();
   }
 }
+
+async function setLedEnabled() {
+  const ledToggle = document.getElementById('ledEnabled');
+  const enabled = ledToggle.checked;
+
+  if (!isBleConnected() || appVersion < LED_CONTROL_MIN_VERSION) {
+    ledToggle.checked = !enabled;
+    addLog('当前固件不支持 LED 开关，请升级到 0x40 或更高版本。');
+    updateButtonStatus();
+    return;
+  }
+
+  ledToggle.disabled = true;
+  if (await write(EpdCmd.SET_LED, new Uint8Array([enabled ? 1 : 0]))) {
+    addLog(`LED 指示已${enabled ? '开启' : '关闭'}，设置已保存。`);
+  } else {
+    ledToggle.checked = !enabled;
+  }
+  updateButtonStatus();
+}
+
 function getWeekStart() {
   const weekStart = document.getElementById('weekStart');
   const value = weekStart ? parseInt(weekStart.value, 10) : 0;
@@ -1483,6 +1508,7 @@ function updateButtonStatus(forceDisabled = imageTransferActive || slotActionPen
   document.getElementById("clearscreenbutton").disabled = status;
   document.getElementById("sendimgbutton").disabled = status;
   document.getElementById("setDriverbutton").disabled = status;
+  document.getElementById("ledEnabled").disabled = Boolean(status) || appVersion < LED_CONTROL_MIN_VERSION;
   document.getElementById("refreshSlotsButton").disabled = status;
   document.getElementById("eraseAllSlotsButton").disabled = status || slotState.usedMask === 0 ? 'disabled' : null;
   document.getElementById("startSlotSlideButton").disabled = status || slotState.usedMask === 0 ? 'disabled' : null;
@@ -1623,7 +1649,7 @@ function handleNotify(value, idx) {
   }
 
   const isTextNotification = data.length > 0 && data.every(byte => byte >= 0x20 && byte <= 0x7E);
-  if (!isTextNotification && data.length === EPD_CONFIG_SIZE) {
+  if (!isTextNotification && (data.length === EPD_CONFIG_SIZE || LEGACY_EPD_CONFIG_SIZES.includes(data.length))) {
     addLog(`收到配置：${bytes2hex(data)}`);
     const epdpins = document.getElementById("epdpins");
     const epddriver = document.getElementById("epddriver");
@@ -1631,6 +1657,7 @@ function handleNotify(value, idx) {
     if (data.length > 10) epdpins.value += bytes2hex(data.slice(10, 11));
     currentPinsValue = epdpins.value.trim().toLowerCase();
     epddriver.value = bytes2hex(data.slice(7, 8));
+    document.getElementById('ledEnabled').checked = data.length > 14 ? data[14] !== 0 : true;
     displayErrorActive = false;
     updateDitcherOptions();
   } else {

@@ -6,7 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>墨水屏日历</title>
 	<link rel="shortcut icon" type="image/png" href="favicon.png">
-	<link rel="stylesheet" href="css/main.css?v=2026072304">
+	<link rel="stylesheet" href="css/main.css?v=2026072401">
 </head>
 
 <body>
@@ -33,6 +33,11 @@
 					<button id="connectbutton" type="button" class="primary" onclick="preConnect()">连接</button>
 					<button id="reconnectbutton" type="button" class="secondary" onclick="reConnect()">重连</button>
 					<button type="button" class="secondary" onclick="clearLog()">清空日志</button>
+					<label class="led-switch" for="ledEnabled" title="开启或关闭设备状态指示灯">
+						<span>LED</span>
+						<input id="ledEnabled" type="checkbox" role="switch" onchange="setLedEnabled()" checked disabled>
+						<span class="led-switch-track" aria-hidden="true"></span>
+					</label>
 				</div>
 				<div class="flex-group debug">
 					<label for="epdpins">引脚</label>
@@ -478,7 +483,7 @@
 	<script type="text/javascript" src="js/dithering.js?v=2026070702"></script>
 	<script type="text/javascript" src="js/paint.js?v=2026072301"></script>
 	<script type="text/javascript" src="js/crop.js?v=2026072302"></script>
-	<script type="text/javascript" src="js/main.js?v=2026072401"></script>
+	<script type="text/javascript" src="js/main.js?v=2026072402"></script>
 </body>
 
 </html>

@@ -216,6 +216,66 @@ button.secondary:hover {
     border-color: var(--primary-color);
 }
 
+.led-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    color: var(--body-muted);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+}
+
+.led-switch input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.led-switch-track {
+    position: relative;
+    flex: 0 0 38px;
+    width: 38px;
+    height: 22px;
+    border-radius: 11px;
+    background: #b6b8bd;
+    transition: background-color 0.16s ease, opacity 0.16s ease;
+}
+
+.led-switch-track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+    transition: transform 0.16s ease;
+}
+
+.led-switch input:checked + .led-switch-track {
+    background: #34c759;
+}
+
+.led-switch input:checked + .led-switch-track::after {
+    transform: translateX(16px);
+}
+
+.led-switch input:focus-visible + .led-switch-track {
+    box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+.led-switch input:disabled + .led-switch-track {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 h3 {
     margin: 0;
     padding: 64px 24px 40px;
@@ -1589,6 +1649,10 @@ body.dark-mode .flex-group.debug {
     border: 1px solid rgba(220, 224, 230, 0.16);
     border-radius: var(--ui-radius-size);
     background: rgba(255, 255, 255, 0.035);
+}
+
+body.dark-mode .led-switch {
+    color: var(--body-muted-dark);
 }
 
 body.dark-mode .sub-nav-frosted {
