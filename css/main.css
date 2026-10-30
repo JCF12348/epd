@@ -2563,3 +2563,17 @@ body.dark-mode.custom-background .canvas-container > .dither-adjust-row {
 
 
 
+
+.battery-status { margin-left:auto; min-height:32px; padding:0 10px; border:1px solid #bdd6c8; border-radius:6px; color:#17603f; background:#f1faf5; font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.battery-status:hover:not(:disabled) { border-color:#7fb397; background:#e3f4ea; }
+.battery-status.battery-low { color:#8f251d; border-color:#e0a7a3; background:#fff1f0; }
+.battery-status.battery-critical { color:#fff; border-color:#b42318; background:#b42318; }
+.collage-controls { gap:.45rem; align-items:center; flex-wrap:wrap; margin-top:8px; }
+.collage-controls input[type="file"] { max-width:22rem; }
+.collage-selected { min-height:1.2rem; color:#667085; font-size:.82rem; }
+.collage-dither-toggle { display:inline-flex; align-items:center; gap:.35rem; font-size:.85rem; }
+@media (max-width:600px) {
+  #image-panel .collage-controls { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+  #image-panel .collage-controls label, #image-panel .collage-controls input[type="file"] { grid-column:1 / -1; width:100%; }
+  #image-panel .collage-controls select, #image-panel .collage-controls button { width:100%; min-width:0; }
+}

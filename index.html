@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 
 <head>
@@ -6,7 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>墨水屏日历 V2.0</title>
 	<link rel="shortcut icon" type="image/png" href="favicon.png">
-	<link rel="stylesheet" href="css/main.css?v=2026080103">
+	<link rel="stylesheet" href="css/main.css?v=20261028-theme-battery-v3">
 </head>
 
 <body>
@@ -22,6 +22,7 @@
 	<div class="sub-nav-frosted">
 		<div class="sub-nav-inner">
 			<span id="driverMeta" class="sub-nav-meta">3.98寸（四色，SE0398NZ07-New-A1） · Web Bluetooth</span>
+			<button id="batteryStatus" class="battery-status" type="button" title="连接设备后点击刷新电量" disabled>电量 --</button>
 		</div>
 	</div>
 	<div class="main">
@@ -75,16 +76,21 @@
 					<input id="epdpins" type="text" value="">
 					<button id="setDriverbutton" type="button" class="primary" onclick="setDriver()">确定</button>
 					<label for="epddriver">驱动</label>
-					<select id="epddriver" onchange="handleDriverChange()">
-						<option value="18" data-color="threeColor" data-size="2.13_128_250">2.13寸 (三色, SSD1619)</option>
-						<option value="19" data-color="threeColor" data-size="2.13_250_122">2.13寸 低分(三色, SSD1619)</option>
-						<option value="0d" data-color="fourColor" data-size="3.7_416_240">3.7BWRY (四色, GDEM037F51)</option>
-						<option value="0e" data-color="threeColor" data-size="3.7_416_240">3.7BWR (三色, GDEY037Z03)</option>
-						<option value="0f" data-color="threeColor" data-size="3.7_416_240">3.7BWR (三色, YS4370JS0C3)</option>
-						<option value="12" data-color="threeColor" data-size="3.7_416_240">3.7BWR(三色，LG 3.7寸）</option>
+					<select id="epddriver" onchange="handleDriverChange()">						
+						<option value="18" data-color="threeColor" data-size="2.13_250_128">2.13寸 (三色, 250*128，SSD1619)</option>
+						<option value="19" data-color="threeColor" data-size="2.13_250_122">2.13寸 低分(三色, 250*122,SSD1619)</option>
+						<option value="24" data-color="blackWhiteColor" data-size="2.13_212_104">2.13寸 超低分(黑白, 212*104, SSD1619)</option>
+						<option value="25" data-color="blackWhiteColor" data-size="2.13_212_104">2.13寸 超低分偏移(黑白, 212*104, SSD1619)</option>
+						<option value="28" data-color="threeColor" data-size="2.9_296_128">2.9寸(三色,296*128,SSD1619)</option>
+						<option value="1c" data-color="sixColor" data-size="3.64_760_568" data-dither="tgzAuto">3.64寸 (6色,图公主相纸)</option>
+						<option value="0d" data-color="fourColor" data-size="3.7_416_240">3.7寸 (四色, GDEM037F51)</option>
+						<option value="0e" data-color="threeColor" data-size="3.7_416_240">3.7寸 (三色, GDEY037Z03)</option>
+						<option value="0f" data-color="threeColor" data-size="3.7_416_240">3.7寸 (三色, YS4370JS0C3)</option>
+						<option value="12" data-color="threeColor" data-size="3.7_416_240">3.7寸 (三色，LG 3.7寸）</option>
+						<option value="26" data-color="blackWhiteColor" data-size="3.7_416_240">3.7寸 (黑白, GDEY037T03 / UC8253)</option>
 						<option value="14" data-color="fourColor" data-size="3.87_800_480">3.87寸（四色，KEGM038701E01-J665）</option>
-						<option value="10" data-color="fourColor" data-size="3.98_768_552">3.98寸（四色，SE0398NZ07A0）</option>
-						<option value="11" data-color="fourColor" data-size="3.98_768_552">3.98寸（四色，SE0398NZ07A1）</option>
+						<option value="10" data-color="fourColor" data-size="3.98_768_552">3.98寸（四色，SE0398NZ07-A0）</option>
+						<option value="11" data-color="fourColor" data-size="3.98_768_552">3.98寸（四色，SE0398NZ07-A1）</option>
 						<option value="13" data-color="fourColor" data-size="3.98_768_552" selected>3.98寸（四色，SE0398NZ07-New-A1）</option>
 						<option value="01" data-color="blackWhiteColor" data-size="4.2_400_300">4.2寸 (黑白, UC8176)</option>
 						<option value="03" data-color="threeColor" data-size="4.2_400_300">4.2寸 (三色, UC8176)</option>
@@ -94,6 +100,12 @@
 						<option value="05" data-color="fourColor" data-size="4.2_400_300">4.2寸 (四色, JCF)</option>
 						<option value="16" data-color="fourColor" data-size="4.2_400_300">4.2寸 (四色, JD79668)</option>
 						<option value="1a" data-color="sevenColor" data-size="5.65_600_448">5.65寸(7色，微雪)</option>
+						<option value="1d" data-color="blackWhiteColor" data-size="5.83_600_448">5.83寸低分 (黑白, UC8159)</option>
+						<option value="1e" data-color="threeColor" data-size="5.83_600_448">5.83寸低分 (三色, UC8159)</option>
+						<option value="1f" data-color="blackWhiteColor" data-size="5.83_648_480">5.83寸 (黑白, UC8179)</option>
+						<option value="20" data-color="threeColor" data-size="5.83_648_480">5.83寸 (三色, UC8179)</option>
+						<option value="21" data-color="fourColor" data-size="5.83_648_480">5.83寸 (四色, JD79665)</option>
+						<option value="23" data-color="threeColor" data-size="5.83_648_480" data-accent="yellow">5.83寸 (黑白黄, UC8159)</option>
 						<option value="06" data-color="blackWhiteColor" data-size="7.5_800_480">7.5寸 (黑白, UC8179)</option>
 						<option value="07" data-color="threeColor" data-size="7.5_800_480">7.5寸 (三色, UC8179)</option>
 						<option value="0c" data-color="fourColor" data-size="7.5_800_480">7.5寸 (四色, JD79668)</option>
@@ -102,6 +114,7 @@
 						<option value="0a" data-color="blackWhiteColor" data-size="7.5_880_528">7.5寸HD (黑白, SSD1677)</option>
 						<option value="0b" data-color="threeColor" data-size="7.5_880_528">7.5寸HD (三色, SSD1677)</option>
 						<option value="15" data-color="fourColor" data-size="9.7_960_680">9.7寸（四色，GDEY133F91）</option>
+						<option value="27" data-color="fourColor" data-size="10.2_960_640">10.2寸（四色，HS-E10.2SE）</option>
 					</select>
 				</div>
 			</div>
@@ -133,6 +146,16 @@
 						<option value="6">周六</option>
 						<option value="0">周日</option>
 					</select>
+					<label for="calendarTheme">日历主题:</label>
+					<select id="calendarTheme">
+						<option value="0">标准布局</option>
+						<option value="1">分栏大日期</option>
+						<option value="2">经典月历</option>
+						<option value="3">日期双栏</option>
+						<option value="4">一周焦点</option>
+						<option value="5">极简日历</option>
+					</select>
+					<button id="calendarThemeButton" type="button" class="secondary" onclick="applyCalendarTheme()">应用主题</button>
 					<button id="calendarmodebutton" type="button" class="primary" onclick="syncTime(1)">日历模式</button>
 					<button id="clockmodebutton" type="button" class="primary" onclick="syncTime(2)">时钟模式</button>
 					<button id="calendarstylebutton" type="button" class="secondary" onclick="toggleCalendarStylePanel()" aria-expanded="false" aria-controls="calendarStylePanel">日历风格</button>
@@ -198,6 +221,8 @@
 								<select id="calendarStyleAccent">
 									<option value="red" selected>红色</option>
 									<option value="yellow">黄色</option>
+									<option value="green">绿色</option>
+									<option value="blue">蓝色</option>
 									<option value="black">黑色</option>
 								</select>
 							</label>
@@ -299,6 +324,23 @@
 				<label for="imageFile" class="file-picker-title">图片文件:</label>
 				<input type="file" id="imageFile" accept=".png,.jpg,.bmp,.webp,.jpeg" onchange="updateImage()">
 			</div>
+			<div class="flex-container collage-controls">
+				<label for="collageFiles">拼图图片:</label>
+				<input type="file" id="collageFiles" accept=".png,.jpg,.bmp,.webp,.jpeg" multiple>
+				<select id="collageLayout" aria-label="拼图布局">
+					<option value="left-right">左右</option>
+					<option value="top-bottom">上下</option>
+					<option value="four-grid" selected>四宫格</option>
+					<option value="diagonal">对角</option>
+					<option value="three-horizontal">横向三宫格</option>
+					<option value="three-vertical">纵向三宫格</option>
+					<option value="six-grid">六宫格</option>
+					<option value="nine-grid">九宫格</option>
+				</select>
+				<button type="button" class="secondary" onclick="applyCollage()">生成拼图</button>
+			</div>
+			<div id="collageSelected" class="collage-selected" role="status">选择图片后可拖动，拖到其他区域可交换，滚轮缩放</div>
+			<label class="collage-dither-toggle"><input type="checkbox" id="collageDitherPreview" checked>实时抖动预览</label>
 			<div class="flex-container options">
 				<div class="flex-group debug">
 					<label for="canvasSize">画布尺寸:</label>
@@ -307,12 +349,14 @@
 						<option value="1.54_200_200">1.54 (200x200)</option>
 						<option value="2.13_212_104">2.13 (212x104)</option>
 						<option value="2.13_250_122">2.13 (250x122)</option>
+						<option value="2.13_250_128">2.13 (250x128)</option>
 						<option value="2.13_128_250">2.13 (128x250)</option>
 						<option value="2.66_296_152">2.66 (296x152)</option>
 						<option value="2.9_296_128">2.9 (296x128)</option>
 						<option value="2.9_384_168">2.9 (384x168)</option>
 						<option value="3.5_384_184">3.5 (384x184)</option>
 						<option value="3.7_416_240">3.7 (416x240)</option>
+						<option value="3.64_760_568">3.64 (760x568)</option>
 						<option value="3.97_800_480">3.97 (800x480)</option>
 						<option value="3.98_768_552" selected>3.98 (768x552)</option>
 						<option value="3.98_800_600">3.98 (800x600)</option>
@@ -343,16 +387,52 @@
 						<option value="sevenColor">七色(黑白红黄蓝绿橙)</option>
 					</select>
 				</div>
+				<fieldset id="gdeyGrayMode" class="flex-group" hidden>
+					<legend>GDEY037T03 图像模式</legend>
+					<label><input id="bwMode" type="radio" name="gdeyImageMode" value="bw" checked onchange="applyDither()"> 黑白</label>
+					<label><input id="gray4Mode" type="radio" name="gdeyImageMode" value="gray4" disabled onchange="applyDither()"> 四级灰度</label>
+				</fieldset>
 				<div class="flex-group">
 					<label for="ditherAlg">抖动算法:</label>
 					<select id="ditherAlg" onchange="applyDither()">
 						<option value="floyd-steinberg" selected>Floyd-Steinberg (ESP32-EPD)</option>
+						<option value="tgzAuto">TGZ-自动抖动</option>
 						<option value="atkinson">Atkinson</option>
 						<option value="bayer">Bayer</option>
 						<option value="stucki">Stucki</option>
 						<option value="jarvis-judice-ninke">Jarvis-Judice-Ninke</option>
 						<option value="none">无抖动</option>
 						<option value="epdOptimize">智能墨水屏优化（原算法）</option>
+					</select>
+					<label for="tgzFilter">滤镜:</label>
+					<select id="tgzFilter" onchange="applyDither()">
+						<option value="none" selected>原图</option>
+						<option value="contrastWarm">反差暖色</option>
+						<option value="outdoor">户外</option>
+						<option value="amberFilm">琥珀映画</option>
+						<option value="filmNoirColor">彩色电影</option>
+						<option value="vintageSlide">反转片</option>
+						<option value="iphone4">iPhone4</option>
+						<option value="coldFilm">冷白皮</option>
+						<option value="nostalgia">古早风</option>
+						<option value="y2k">千禧风</option>
+						<option value="grayscale">灰度</option>
+						<option value="pureBlackWhite">黑白</option>
+						<option value="highContrastBW">高对比黑白</option>
+						<option value="crushBW">黑白场</option>
+						<option value="filmNoir">黑色电影</option>
+						<option value="pencil">铅笔</option>
+						<option value="colorPencil">彩铅</option>
+						<option value="sepia">棕褐</option>
+						<option value="redWhite">红白</option>
+						<option value="blackYellow">黑黄</option>
+						<option value="chrome">铬黄</option>
+						<option value="chromeRed">铬红</option>
+						<option value="redTriTone">黑白红</option>
+						<option value="yellowTriTone">黑白黄</option>
+						<option value="pureRedBlack">红色调</option>
+						<option value="pureYellowBlack">黄色调</option>
+						<option value="color">彩色</option>
 					</select>
 					<button id="resetDitherAdjustments" type="button" class="secondary">还原默认</button>
 				</div>
@@ -658,11 +738,16 @@
 			</div>
 		</div>
 	</div>
-	<script type="text/javascript" src="js/dithering.js?v=2026080405"></script>
+	<script type="text/javascript" src="js/tgz-filter-curves.js?v=2026082604"></script>
+	<script type="text/javascript" src="js/tgz-filter-lut.js?v=2026082604"></script>
+	<script type="text/javascript" src="js/tgz-filters.js?v=2026082604"></script>
+	<script type="text/javascript" src="js/tgz-dither-luts.js?v=2026082604"></script>
+	<script type="text/javascript" src="js/dithering.js?v=2026100601"></script>
 	<script type="text/javascript" src="js/paint.js?v=2026072301"></script>
 	<script type="text/javascript" src="js/crop.js?v=2026072302"></script>
 	<script type="text/javascript" src="js/secure-dfu.js?v=2026072703"></script>
-	<script type="text/javascript" src="js/main.js?v=2026081801"></script>
+	<script type="text/javascript" src="js/collage.js?v=20261028"></script>
+	<script type="text/javascript" src="js/main.js?v=20261029-ssd1619-290-v1"></script>
 </body>
 
 </html>

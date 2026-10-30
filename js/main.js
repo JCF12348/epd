@@ -1,12 +1,19 @@
-﻿let bleDevice, gattServer;
+let bleDevice, gattServer;
 let epdService, epdCharacteristic;
 let startTime, msgIndex;
 let canvas, ctx, textDecoder;
 let paintManager, cropManager;
 let bleWriteChain = Promise.resolve();
 let currentPinsValue = '';
+// Driver changes can race with the device's connection-time config notification.
+// Keep the user's requested value until the matching config response arrives.
+let pendingDriverValue = null;
+let pendingDriverTimer = null;
 let ditherSourceImageData = null;
 let ditherPreviewActive = false;
+let gdeyGray4Processed = null;
+let gray4Support = false;
+let imageModeRequest = null;
 let pageExitDisconnecting = false;
 let slotState = { count: 0, pageStart: 0, pageCount: 0, usedMask: 0, selected: null, flashSize: 0, fingerprints: [] };
 let slotReadState = null;
@@ -40,6 +47,7 @@ let customCalendarFontFamily = '';
 let calendarStyleRenderTimer = null;
 let calendarStyleImageActive = false;
 let ledColorWriteTimer = null;
+let batteryWarningLevel = 0;
 
 const MAX_SLOT_IMAGE_SIZE = 1024 * 1024;
 const DEFAULT_SLOT_READ_RAW_CHUNK_SIZE = 256;
@@ -48,6 +56,7 @@ const SLOT_READ_INFO_TIMEOUT_MS = 8000;
 const SLOT_CHUNK_MAX_RETRIES = 2;
 const SLOT_PAGE_SIZE = 18;
 const IMAGE_REFRESH_TIMEOUT_MS = 95000;
+const IMAGE_MODE_TIMEOUT_MS = 3000;
 const SLOT_IMAGE_CACHE_PREFIX = 'epd-slot-preview-v2:';
 const SLOT_PREVIEW_MAX_EDGE = 480;
 const SLOT_PREVIEW_JPEG_QUALITY = 0.88;
@@ -101,6 +110,8 @@ const EpdCmd = {
 
   SET_TIME: 0x20,
   SET_WEEK_START: 0x21,
+  SET_THEME: 0x22,
+  GET_STATUS: 0x2B,
   SET_LED: 0x93,
 
   WRITE_IMG: 0x30, // v1.6
@@ -110,6 +121,7 @@ const EpdCmd = {
   GET_IMAGE: 0x34,
   GET_SLOTS: 0x35,
   SET_FONT: 0x36,
+  SET_IMAGE_MODE: 0x37,
 
   SET_CONFIG: 0x90,
   SYS_RESET: 0x91,
@@ -120,18 +132,105 @@ const EpdCmd = {
 const LEGACY_EPD_CONFIG_SIZES = [14, 15, 16];
 const EPD_CONFIG_SIZE = 19;
 const LED_CONTROL_MIN_VERSION = 0x40;
-let firmwareVersion = { label: '未知', ledControl: false, directImagePrepare: false, outdated: true };
+let firmwareVersion = { label: '未知', ledControl: false, directImagePrepare: false, e6DirectPass: false, e6FrameCache: false, outdated: true };
+
+function parseDeviceStatus(message) {
+  const compact = /^status=(\d+),(\d+)$/.exec(message || '');
+  if (compact) return { voltage: Number(compact[1]), battery: Number(compact[2]), temperature: null };
+  const match = /^status voltage=(\d+)(?: battery=(\d+)(?: temperature=(-?\d+))?)?$/.exec(message || '');
+  if (!match) return null;
+  const voltage = Number(match[1]);
+  return { voltage, battery: match[2] == null ? batteryPercentFromVoltage(voltage) : Number(match[2]),
+    temperature: match[3] == null ? null : Number(match[3]) };
+}
+
+function batteryPercentFromVoltage(voltage) {
+  const adc = Math.floor(voltage * 2047 / 3600);
+  if (adc > 1705) return 100;
+  if (adc > 1584) return 28 + Math.floor((adc - 1584) * 72 / 121);
+  if (adc > 1360) return 4 + Math.floor((adc - 1360) * 24 / 224);
+  if (adc > 1136) return Math.floor((adc - 1136) * 4 / 224);
+  return 0;
+}
+
+function updateBatteryStatus(status) {
+  const el = document.getElementById('batteryStatus');
+  if (!el) return;
+  if (!status || !Number.isFinite(status.voltage) || !Number.isFinite(status.battery)) {
+    el.textContent = '电量 --';
+    el.title = '连接设备后点击刷新电量';
+    el.classList.remove('battery-low', 'battery-critical');
+    batteryWarningLevel = 0;
+    return;
+  }
+  const pct = Math.max(0, Math.min(100, status.battery));
+  const volts = (status.voltage / 1000).toFixed(2);
+  el.textContent = `电量 ${pct}% · ${volts}V`;
+  el.title = status.temperature == null ? `电池 ${volts}V（${status.voltage} mV）`
+    : `电池 ${volts}V（${status.voltage} mV），温度 ${status.temperature}℃`;
+  el.classList.toggle('battery-low', pct <= 20);
+  el.classList.toggle('battery-critical', pct <= 5 || status.voltage <= 2700);
+  const nextWarning = pct <= 5 || status.voltage <= 2700 ? 2 : (pct <= 15 || status.voltage <= 2850 ? 1 : 0);
+  if (nextWarning !== batteryWarningLevel && nextWarning > 0)
+    addLog(`${nextWarning === 2 ? '严重低电量' : '低电量'}：${pct}%（${volts}V）`);
+  batteryWarningLevel = nextWarning;
+}
+
+async function refreshBatteryStatus() {
+  if (!isBleConnected()) return false;
+  return write(EpdCmd.GET_STATUS);
+}
+
+function isCalendarThemeSupported(driverValue) {
+  const fourInchModels = [0x01, 0x02, 0x03, 0x04, 0x05, 0x16, 0x17];
+  return fourInchModels.includes(parseInt(driverValue || '0', 16));
+}
+
+function updateCalendarThemeAvailability() {
+  const driver = document.getElementById('epddriver');
+  const select = document.getElementById('calendarTheme');
+  const button = document.getElementById('calendarThemeButton');
+  if (!driver || !select || !button) return;
+  const supported = isCalendarThemeSupported(driver.value);
+  select.disabled = !supported;
+  button.disabled = !supported || !isBleConnected();
+  button.title = supported ? '保存主题并立即刷新日历' : '仅4.2寸提供五套主题';
+}
+
+async function setCalendarTheme(theme) {
+  const value = Math.max(0, Math.min(5, Number(theme) || 0));
+  if (!isCalendarThemeSupported(document.getElementById('epddriver').value)) return false;
+  const ok = await write(EpdCmd.SET_THEME, new Uint8Array([value]));
+  if (ok) addLog(`日历主题已切换：${['标准布局', '分栏大日期', '经典月历', '日期双栏', '一周焦点', '极简日历'][value]}`);
+  return ok;
+}
+
+function applyCalendarTheme() {
+  return setCalendarTheme(document.getElementById('calendarTheme').value);
+}
+
+const E6_PASS1_MAP = [1, 1, 1, 3, 1, 0, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+const E6_PASS2_MAP = [0, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+const E6_PM4_COLOR_BY_TRANSFER = Object.freeze({
+  0x00: 0, 0xFF: 1, 0xE2: 2, 0x4C: 3, 0x1D: 5, 0x96: 6,
+});
+const E6_TRANSFER_BY_PM4_COLOR = [0x00, 0xFF, 0xE2, 0x4C, 0xFF, 0x1D, 0x96];
+const E6_PASS_PAIR_TO_COLOR = {
+  '1,0': 0, '1,1': 1, '1,2': 2, '3,1': 3, '0,1': 5, '2,1': 6,
+};
 
 const canvasSizes = [
   { name: '1.54_152_152', width: 152, height: 152 },
   { name: '1.54_200_200', width: 200, height: 200 },
   { name: '2.13_212_104', width: 212, height: 104 },
   { name: '2.13_250_122', width: 250, height: 122 },
+  { name: '2.13_250_128', width: 250, height: 128 },
   { name: '2.13_128_250', width: 128, height: 250 },
   { name: '2.66_296_152', width: 296, height: 152 },
   { name: '2.9_296_128', width: 296, height: 128 },
   { name: '2.9_384_168', width: 384, height: 168 },
   { name: '3.5_384_184', width: 384, height: 184 },
+  { name: '3.64_760_568', width: 760, height: 568 },
   { name: '3.7_416_240', width: 416, height: 240 },
   { name: '3.97_800_480', width: 800, height: 480 },
   { name: '3.98_768_552', width: 768, height: 552 },
@@ -178,6 +277,8 @@ function parseFirmwareVersion(value) {
       label: text,
       ledControl: currentOrNewer,
       directImagePrepare: major > 1 || (major === 1 && minor >= 36),
+      e6DirectPass: major > 1 || (major === 1 && minor >= 39),
+      e6FrameCache: major > 2 || (major === 2 && minor >= 1),
       outdated: !currentOrNewer,
     };
   }
@@ -187,6 +288,8 @@ function parseFirmwareVersion(value) {
     label: `0x${legacy.toString(16)}`,
     ledControl: legacy >= LED_CONTROL_MIN_VERSION,
     directImagePrepare: false,
+    e6DirectPass: false,
+    e6FrameCache: false,
     outdated: legacy < 0x16,
   };
 }
@@ -201,7 +304,7 @@ function resetVariables(options = {}) {
   gattServer = null;
   epdService = null;
   epdCharacteristic = null;
-  firmwareVersion = { label: '未知', ledControl: false, directImagePrepare: false, outdated: true };
+  firmwareVersion = { label: '未知', ledControl: false, directImagePrepare: false, e6DirectPass: false, e6FrameCache: false, outdated: true };
   msgIndex = 0;
   bleWriteChain = Promise.resolve();
   currentPinsValue = '';
@@ -214,6 +317,9 @@ function resetVariables(options = {}) {
   slotProtocolV2 = false;
   slotPreviewPending = new Set();
   rleSupport = false;
+  gray4Support = false;
+  gdeyGray4Processed = null;
+  clearImageModeRequest(false);
   slotStreamSupport = false;
   clockFontSupport = false;
   clockFontBusy = false;
@@ -226,6 +332,7 @@ function resetVariables(options = {}) {
   slotActionPending = false;
   slotEraseAllPending = false;
   displayErrorActive = false;
+  updateBatteryStatus(null);
   if (slotActionTimer != null) clearTimeout(slotActionTimer);
   slotActionTimer = null;
   renderSlotGrid();
@@ -1496,10 +1603,10 @@ function restoreRotated2bpp(data, width, height) {
   return output;
 }
 
-function restoreSSD1619_213_250x122Plane(data) {
+function restoreSSD1619_213LandscapePlane(data, activeHeight, activeWidth = 250) {
   const nativeWidth = 128;
-  const activeWidth = 250;
-  const activeHeight = 122;
+  if (!((activeWidth === 250 && (activeHeight === 128 || activeHeight === 122)) ||
+        (activeWidth === 296 && activeHeight === 128))) return new Uint8Array(data);
   const output = new Uint8Array(Math.ceil(activeWidth / 8) * activeHeight).fill(0xFF);
   for (let y = 0; y < activeHeight; y++) {
     for (let x = 0; x < activeWidth; x++) {
@@ -1510,8 +1617,45 @@ function restoreSSD1619_213_250x122Plane(data) {
   return output;
 }
 
+function restoreSSD1619_213_212x104Plane(data) {
+  const nativeWidth = 104;
+  const activeWidth = 212;
+  const activeHeight = 104;
+  const output = new Uint8Array(Math.ceil(activeWidth / 8) * activeHeight).fill(0xFF);
+  for (let y = 0; y < activeHeight; y++) {
+    for (let x = 0; x < activeWidth; x++) {
+      set1bppPixel(output, activeWidth, x, y,
+        get1bppPixel(data, nativeWidth, y, activeWidth - 1 - x));
+    }
+  }
+  return output;
+}
+
+function restoreE6SlotData(data, width, height) {
+  const pixelCount = width * height;
+  const passSize = Math.ceil(pixelCount / 4);
+  if (data.length !== passSize * 2) return data;
+
+  const output = new Uint8Array(pixelCount);
+  for (let pixel = 0; pixel < pixelCount; pixel++) {
+    const shift = 6 - ((pixel & 0x03) * 2);
+    const pass1 = (data[pixel >> 2] >> shift) & 0x03;
+    const pass2 = (data[passSize + (pixel >> 2)] >> shift) & 0x03;
+    const color = E6_PASS_PAIR_TO_COLOR[`${pass1},${pass2}`] ?? 1;
+    const originalPixel = pixelCount - 1 - pixel;
+    const y = Math.floor(originalPixel / width);
+    const x = originalPixel % width;
+    output[x * height + (height - 1 - y)] = E6_TRANSFER_BY_PM4_COLOR[color] ?? 0xFF;
+  }
+  return output;
+}
+
 function normalizeSlotImageData(meta) {
   const driverSelect = document.getElementById('epddriver');
+  if (meta.colorId === 6 && meta.width === 760 && meta.height === 568 && firmwareVersion.e6DirectPass)
+    return restoreE6SlotData(meta.data, meta.width, meta.height);
+  if (meta.colorId === 4 && isHSE102SEDriver(driverSelect))
+    return rotate1802bpp(meta.data, meta.width, meta.height);
   const needsNativeRotation = meta.width === 416 && meta.height === 240 &&
     (isGDEM037F51Driver(driverSelect) || isGDEY037Z03Driver(driverSelect));
   if (!needsNativeRotation) return meta.data;
@@ -1558,20 +1702,30 @@ function finishSlotImageRead() {
     const mode = meta.colorId === 2 ? 'blackWhiteColor' : meta.colorId === 3 ? 'threeColor' :
       meta.colorId === 4 ? 'fourColor' : meta.colorId === 6 ? 'sixColor' : 'sevenColor';
     let normalized = normalizeSlotImageData(meta);
-    const driverValue = document.getElementById('epddriver').value.toLowerCase();
+    const epdDriverSelect = document.getElementById('epddriver');
+    const driverValue = epdDriverSelect.value.toLowerCase();
     let previewWidth = meta.width;
     let previewHeight = meta.height;
-    if (driverValue === '19' && meta.width === 128 && meta.height === 250 && meta.colorId === 3) {
+    if (meta.colorId === 3 && meta.width === 128 &&
+        (((driverValue === '18' || driverValue === '19') && meta.height === 250) ||
+         (driverValue === '28' && meta.height === 296))) {
+      const activeWidth = driverValue === '28' ? 296 : 250;
+      const activeHeight = driverValue === '19' ? 122 : 128;
       const planeSize = Math.ceil(meta.width / 8) * meta.height;
-      const black = restoreSSD1619_213_250x122Plane(normalized.slice(0, planeSize));
-      const red = restoreSSD1619_213_250x122Plane(normalized.slice(planeSize, planeSize * 2));
+      const black = restoreSSD1619_213LandscapePlane(normalized.slice(0, planeSize), activeHeight, activeWidth);
+      const red = restoreSSD1619_213LandscapePlane(normalized.slice(planeSize, planeSize * 2), activeHeight, activeWidth);
       normalized = new Uint8Array(black.length + red.length);
       normalized.set(black, 0);
       normalized.set(red, black.length);
-      previewWidth = 250;
-      previewHeight = 122;
+      previewWidth = activeWidth;
+      previewHeight = activeHeight;
+    } else if ((driverValue === '24' || driverValue === '25') &&
+               meta.width === 104 && meta.height === 212 && meta.colorId === 2) {
+      normalized = restoreSSD1619_213_212x104Plane(normalized);
+      previewWidth = 212;
+      previewHeight = 104;
     }
-    const imageData = (driverValue === '08' || driverValue === '09')
+    const imageData = isUC8159Driver(epdDriverSelect)
       ? decodeUC8159SlotData(normalized, previewWidth, previewHeight)
       : decodeProcessedData(normalized, previewWidth, previewHeight, mode);
     const existingPreview = slotImageCache.get(meta.slot);
@@ -1667,6 +1821,7 @@ async function writeImage(data, step = 'bw', waitForPrepare = false) {
 
 async function handleDriverChange() {
   updateDitcherOptions();
+  updateCalendarThemeAvailability();
   if (!isBleConnected()) return;
   await setDriver({ updateOptions: false });
 }
@@ -1680,7 +1835,8 @@ async function setDriver(options = {}) {
     if (options.updateOptions !== false) updateDitcherOptions();
 
     const pins = document.getElementById("epdpins").value.trim().toLowerCase();
-    const driver = driverSelect.value;
+    const driver = driverSelect.value.toLowerCase();
+    pendingDriverValue = driver;
 
     if (pins !== currentPinsValue) {
       if (!await write(EpdCmd.SET_PINS, pins, true)) return;
@@ -1693,6 +1849,11 @@ async function setDriver(options = {}) {
     addLog("驱动已更新。");
     await refreshSlots(0);
   } finally {
+    if (pendingDriverTimer != null) clearTimeout(pendingDriverTimer);
+    pendingDriverTimer = setTimeout(() => {
+      pendingDriverValue = null;
+      pendingDriverTimer = null;
+    }, 10000);
     driverSelect.disabled = false;
     updateButtonStatus();
   }
@@ -1948,6 +2109,10 @@ function convertUC8159(blackWhiteData, redWhiteData) {
   return payloadData;
 }
 
+function isUC8159Driver(selectElement) {
+  return ['08', '09', '1d', '1e'].includes((selectElement.value || '').toLowerCase());
+}
+
 
 
 function isGDEM037F51Driver(selectElement) {
@@ -1967,8 +2132,75 @@ function isGDEY037Z03Driver(selectElement) {
     size === '3.7_416_240' && (label.includes('GDEY037Z03') || label.includes('YS4370JS0C3') || label.includes('LG 3.7'));
 }
 
-function isSSD1619_213_250x122Driver(selectElement) {
-  return (selectElement.value || '').toLowerCase() === '19';
+function isGDEY037T03Gray4Driver(selectElement) {
+  return (selectElement?.value || '').toLowerCase() === '26';
+}
+
+function getGDEYImageMode() {
+  if (!isGDEY037T03Gray4Driver(document.getElementById('epddriver')) || !gray4Support) return 'bw';
+  return document.querySelector('input[name="gdeyImageMode"]:checked')?.value || 'bw';
+}
+
+function isGDEYGraySelected() { return getGDEYImageMode() === 'gray4'; }
+
+function updateGDEYImageModeControls() {
+  const fieldset = document.getElementById('gdeyGrayMode');
+  const gray4 = document.getElementById('gray4Mode');
+  const bw = document.getElementById('bwMode');
+  const driver = document.getElementById('epddriver');
+  if (!fieldset || !gray4 || !bw || !driver) return;
+  const enabled = isGDEY037T03Gray4Driver(driver) && gray4Support;
+  fieldset.hidden = !enabled;
+  gray4.disabled = !enabled || imageTransferActive;
+  bw.disabled = imageTransferActive;
+  if (!enabled) { gray4.checked = false; bw.checked = true; gdeyGray4Processed = null; }
+}
+
+function clearImageModeRequest(result = false) {
+  if (!imageModeRequest) return;
+  clearTimeout(imageModeRequest.timer);
+  const request = imageModeRequest;
+  imageModeRequest = null;
+  request.resolve(result);
+}
+
+async function requestImageMode(mode) {
+  if (!isGDEY037T03Gray4Driver(document.getElementById('epddriver')) || (mode === 1 && !gray4Support)) return false;
+  clearImageModeRequest(false);
+  const acknowledgement = new Promise(resolve => {
+    imageModeRequest = { mode, resolve, timer: setTimeout(() => clearImageModeRequest(false), IMAGE_MODE_TIMEOUT_MS) };
+  });
+  if (!await write(EpdCmd.SET_IMAGE_MODE, new Uint8Array([mode]), true)) { clearImageModeRequest(false); return false; }
+  return acknowledgement;
+}
+
+function handleImageModeNotification(message) {
+  if (!imageModeRequest) return false;
+  if (message.startsWith('imgmode_error=')) { clearImageModeRequest(false); return true; }
+  const match = /^imgmode=(0|1)$/.exec(message);
+  if (!match) return false;
+  clearImageModeRequest(parseInt(match[1], 10) === imageModeRequest.mode);
+  return true;
+}
+
+function isSSD1619_213LandscapeDriver(selectElement) {
+  return ['18', '19', '28'].includes((selectElement.value || '').toLowerCase());
+}
+
+function isSSD1619_213_212x104Driver(selectElement) {
+  return ['24', '25'].includes((selectElement.value || '').toLowerCase());
+}
+
+function isGDEY0583Z31Driver(selectElement) {
+  const option = selectElement.options[selectElement.selectedIndex];
+  const value = (selectElement.value || '').toLowerCase();
+  const size = option ? option.getAttribute('data-size') : '';
+  const label = option ? option.textContent : '';
+  return value === '23' || (size === '5.83_648_480' && label.includes('GDEY0583Z31'));
+}
+
+function isHSE102SEDriver(selectElement) {
+  return (selectElement?.value || '').toLowerCase() === '27';
 }
 
 function get1bppPixel(data, width, x, y) {
@@ -1982,6 +2214,35 @@ function set1bppPixel(data, width, x, y, value) {
   const mask = 0x80 >> (x & 0x07);
   if (value) data[byteIndex] |= mask;
   else data[byteIndex] &= ~mask;
+}
+
+function invert1bpp(data) {
+  const output = new Uint8Array(data.length);
+  for (let i = 0; i < data.length; i++) output[i] = data[i] ^ 0xFF;
+  return output;
+}
+
+function flipVertical1bpp(data, width, height) {
+  const rowBytes = Math.ceil(width / 8);
+  if (data.length < rowBytes * height) return new Uint8Array(data);
+  const output = new Uint8Array(data.length);
+  for (let y = 0; y < height; y++) {
+    output.set(data.subarray((height - 1 - y) * rowBytes, (height - y) * rowBytes), y * rowBytes);
+  }
+  return output;
+}
+
+function rotate1801bpp(data, width, height) {
+  const rowBytes = Math.ceil(width / 8);
+  if (data.length < rowBytes * height) return new Uint8Array(data);
+  const output = new Uint8Array(data.length).fill(0xFF);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      set1bppPixel(output, width, width - 1 - x, height - 1 - y,
+        get1bppPixel(data, width, x, y));
+    }
+  }
+  return output;
 }
 
 function convertGDEY037Z03Plane(data, srcWidth = canvas.width, srcHeight = canvas.height) {
@@ -2006,12 +2267,28 @@ function convertGDEY037Z03Plane(data, srcWidth = canvas.width, srcHeight = canva
   return output;
 }
 
-function convertSSD1619_213_250x122Plane(data, srcWidth = canvas.width, srcHeight = canvas.height) {
+function convertSSD1619_213LandscapePlane(data, srcWidth = canvas.width, srcHeight = canvas.height) {
   const nativeWidth = 128;
-  const nativeHeight = 250;
-  if (srcWidth !== 250 || srcHeight !== 122) return new Uint8Array(data);
+  const nativeHeight = srcWidth;
+  if (!((srcWidth === 250 && (srcHeight === 128 || srcHeight === 122)) ||
+        (srcWidth === 296 && srcHeight === 128))) return new Uint8Array(data);
 
   const output = new Uint8Array((nativeWidth * nativeHeight) / 8).fill(0xFF);
+  for (let y = 0; y < srcHeight; y++) {
+    for (let x = 0; x < srcWidth; x++) {
+      set1bppPixel(output, nativeWidth, y, nativeHeight - 1 - x,
+        get1bppPixel(data, srcWidth, x, y));
+    }
+  }
+  return output;
+}
+
+function convertSSD1619_213_212x104Plane(data, srcWidth = canvas.width, srcHeight = canvas.height) {
+  const nativeWidth = 104;
+  const nativeHeight = 212;
+  if (srcWidth !== 212 || srcHeight !== 104) return new Uint8Array(data);
+
+  const output = new Uint8Array(Math.ceil(nativeWidth / 8) * nativeHeight).fill(0xFF);
   for (let y = 0; y < srcHeight; y++) {
     for (let x = 0; x < srcWidth; x++) {
       set1bppPixel(output, nativeWidth, y, nativeHeight - 1 - x,
@@ -2033,6 +2310,16 @@ function set2bppPixel(data, width, x, y, value) {
   const byteIndex = pixelIndex >> 2;
   const shift = 6 - ((pixelIndex & 0x03) * 2);
   data[byteIndex] = (data[byteIndex] & ~(0x03 << shift)) | ((value & 0x03) << shift);
+}
+
+function rotate1802bpp(data, width, height) {
+  const output = new Uint8Array(Math.ceil(width * height / 4));
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      set2bppPixel(output, width, width - 1 - x, height - 1 - y, get2bppPixel(data, width, x, y));
+    }
+  }
+  return output;
 }
 
 
@@ -2067,17 +2354,59 @@ function convertGDEM037F51(data, srcWidth = canvas.width, srcHeight = canvas.hei
 
   return output;
 }
+function e6Pm4Color(transferColor) {
+  return E6_PM4_COLOR_BY_TRANSFER[transferColor] ?? 1;
+}
+
+function convertE6Pass(data, map) {
+  const width = canvas.width;
+  const height = canvas.height;
+  const pixelCount = width * height;
+  if (data.length !== pixelCount) return new Uint8Array(0);
+
+  const result = new Uint8Array(Math.ceil(pixelCount / 4));
+  for (let outputPixel = 0; outputPixel < pixelCount; outputPixel++) {
+    const originalPixel = outputPixel;
+    const y = Math.floor(originalPixel / width);
+    const x = originalPixel % width;
+    const color = e6Pm4Color(data[x * height + (height - 1 - y)]);
+    result[outputPixel >> 2] |= map[color] << (6 - ((outputPixel & 0x03) * 2));
+  }
+  return result;
+}
+
+function packE6Frame(data) {
+  const width = canvas.width;
+  const height = canvas.height;
+  const pixelCount = width * height;
+  if (data.length !== pixelCount) return new Uint8Array(0);
+
+  const result = new Uint8Array(Math.ceil(pixelCount / 2));
+  for (let outputPixel = 0; outputPixel < pixelCount; outputPixel++) {
+    const originalPixel = outputPixel;
+    const y = Math.floor(originalPixel / width);
+    const x = originalPixel % width;
+    const color = e6Pm4Color(data[x * height + (height - 1 - y)]);
+    if (outputPixel & 1) result[outputPixel >> 1] |= color;
+    else result[outputPixel >> 1] = color << 4;
+  }
+  return result;
+}
+
 async function sendimg(options = {}) {
   if (cropManager) cropManager.commitPendingTransform(false);
   const canvasSize = document.getElementById('canvasSize').value;
-  const ditherMode = document.getElementById('ditherMode').value;
+  let ditherMode = document.getElementById('ditherMode').value;
   const epdDriverSelect = document.getElementById('epddriver');
   const selectedOption = epdDriverSelect.options[epdDriverSelect.selectedIndex];
+  const gdeyDriver = isGDEY037T03Gray4Driver(epdDriverSelect);
+  const graySelected = gdeyDriver && isGDEYGraySelected();
+  if (gdeyDriver) ditherMode = 'blackWhiteColor';
 
   if (selectedOption.getAttribute('data-size') !== canvasSize) {
     if (!confirm("警告：画布尺寸和驱动不匹配，是否继续？")) return;
   }
-  if (selectedOption.getAttribute('data-color') !== ditherMode) {
+  if (!graySelected && selectedOption.getAttribute('data-color') !== ditherMode) {
     if (!confirm("警告：颜色模式和驱动不匹配，是否继续？")) return;
   }
 
@@ -2090,9 +2419,25 @@ async function sendimg(options = {}) {
 
   imageTransferActive = true;
   updateButtonStatus();
+  if (gdeyDriver && !await requestImageMode(graySelected ? 1 : 0)) {
+    addLog('图像模式确认失败，未发送图片数据。');
+    imageTransferActive = false;
+    updateButtonStatus();
+    return false;
+  }
   const targetSlot = Number.isInteger(options.slot) ? options.slot : null;
+  if (graySelected && targetSlot != null) {
+    addLog('GDEY037T03 四级灰度当前仅支持直接发送，未写入图片槽位。');
+    await requestImageMode(0);
+    imageTransferActive = false;
+    updateButtonStatus();
+    return false;
+  }
+  const isE6Direct = epdDriverSelect.value.toLowerCase() === '1c' && firmwareVersion.e6DirectPass;
+  const e6FrameCache = ditherMode === 'sixColor' && isE6Direct && firmwareVersion.e6FrameCache;
   const directPrepare = targetSlot == null &&
-    epdDriverSelect.value.toLowerCase() === '1a' && firmwareVersion.directImagePrepare;
+    (epdDriverSelect.value.toLowerCase() === '1a' || epdDriverSelect.value.toLowerCase() === '1c') &&
+    firmwareVersion.directImagePrepare;
   const refreshAfterSave = targetSlot != null && options.refreshAfterSave === true;
   if (targetSlot != null) {
     cacheCurrentSlotPreview(targetSlot, processedData, ditherMode);
@@ -2109,12 +2454,34 @@ async function sendimg(options = {}) {
 
   let transferOk = true;
 
-  if (ditherMode === 'sevenColor') {
+  if (graySelected) {
+    transferOk = gdeyGray4Processed != null && await writeImage(gdeyGray4Processed.oldPlane, 'bw', directPrepare);
+    if (transferOk) transferOk = await writeImage(gdeyGray4Processed.newPlane, 'red');
+  } else if (e6FrameCache) {
+    const e6Frame = packE6Frame(processedData);
+    transferOk = targetSlot != null || await write(EpdCmd.SET_SLOT, encodeSlotAction(4, 0));
+    if (transferOk) transferOk = await writeImage(e6Frame, 'bw');
+  } else if (ditherMode === 'sixColor' && isE6Direct) {
+    const e6Pass1 = convertE6Pass(processedData, E6_PASS1_MAP);
+    transferOk = await writeImage(e6Pass1, 'bw', directPrepare);
+    if (transferOk && targetSlot == null) {
+      const secondPassReady = startImagePrepareWait();
+      setStatus('第一阶段刷新中...');
+      transferOk = await write(EpdCmd.REFRESH) && await secondPassReady;
+    }
+    if (transferOk) {
+      const e6Pass2 = convertE6Pass(processedData, E6_PASS2_MAP);
+      transferOk = await writeImage(e6Pass2, 'red');
+    }
+  } else if (ditherMode === 'sevenColor' || ditherMode === 'sixColor') {
     transferOk = await writeImage(processedData, 'bw', directPrepare);
   } else if (ditherMode === 'fourColor') {
     const useGDEM037F51 = isGDEM037F51Driver(epdDriverSelect);
-    const imagePayload = useGDEM037F51 ? convertGDEM037F51(processedData, canvas.width, canvas.height) : processedData;
+    const useHSE102SE = isHSE102SEDriver(epdDriverSelect);
+    const imagePayload = useGDEM037F51 ? convertGDEM037F51(processedData, canvas.width, canvas.height) :
+      (useHSE102SE ? rotate1802bpp(processedData, canvas.width, canvas.height) : processedData);
     if (useGDEM037F51) addLog('3.7BWRY 图像数据已按日历方向重排为原生 240x416');
+    if (useHSE102SE) addLog('10.2寸 HS-E10.2SE 图像数据已旋转 180°');
     transferOk = await writeImage(imagePayload, 'bw', directPrepare);
   } else if (ditherMode === 'threeColor') {
     const halfLength = Math.floor(processedData.length / 2);
@@ -2125,23 +2492,34 @@ async function sendimg(options = {}) {
       redWhiteData = convertGDEY037Z03Plane(redWhiteData, canvas.width, canvas.height);
       addLog('3.7BWR 图像数据已按日历方向重排为原生 240x416');
     }
-    if (isSSD1619_213_250x122Driver(epdDriverSelect)) {
-      blackWhiteData = convertSSD1619_213_250x122Plane(blackWhiteData, canvas.width, canvas.height);
-      redWhiteData = convertSSD1619_213_250x122Plane(redWhiteData, canvas.width, canvas.height);
-      addLog('2.13寸图像数据已按 128x250 显存旋转并应用 X + 8 px 偏移');
+    if (isSSD1619_213LandscapeDriver(epdDriverSelect)) {
+      blackWhiteData = convertSSD1619_213LandscapePlane(blackWhiteData, canvas.width, canvas.height);
+      redWhiteData = convertSSD1619_213LandscapePlane(redWhiteData, canvas.width, canvas.height);
+      addLog(`${canvas.width}x${canvas.height} 横向图像已重排为原生 128x${canvas.width} 显存`);
     }
-    if (epdDriverSelect.value === '08' || epdDriverSelect.value === '09') {
+    if (isGDEY0583Z31Driver(epdDriverSelect)) {
+      blackWhiteData = rotate1801bpp(blackWhiteData, canvas.width, canvas.height);
+      redWhiteData = rotate1801bpp(redWhiteData, canvas.width, canvas.height);
+      addLog('5.83寸 GDEY 图像数据已旋转 180°');
+    }
+    if (isUC8159Driver(epdDriverSelect)) {
       transferOk = await writeImage(convertUC8159(blackWhiteData, redWhiteData), 'bw', directPrepare);
     } else {
       transferOk = await writeImage(blackWhiteData, 'bw', directPrepare);
       if (transferOk) transferOk = await writeImage(redWhiteData, 'red');
     }
   } else if (ditherMode === 'blackWhiteColor') {
-    if (epdDriverSelect.value === '08' || epdDriverSelect.value === '09') {
+    if (isSSD1619_213_212x104Driver(epdDriverSelect)) {
+      const imagePayload = convertSSD1619_213_212x104Plane(processedData, canvas.width, canvas.height);
+      addLog('2.13寸 212x104 黑白图像已按日历方向重排为原生 104x212 显存');
+      transferOk = await writeImage(imagePayload, 'bw', directPrepare);
+    } else if (isUC8159Driver(epdDriverSelect)) {
       const emptyData = new Uint8Array(processedData.length).fill(0xFF);
       transferOk = await writeImage(convertUC8159(processedData, emptyData), 'bw', directPrepare);
     } else {
-      transferOk = await writeImage(processedData, 'bw', directPrepare);
+      const imagePayload = gdeyDriver ? convertGDEY037Z03Plane(processedData, canvas.width, canvas.height) : processedData;
+      if (gdeyDriver) addLog('GDEY037T03 黑白图像已重排为原生 240x416 显存顺序');
+      transferOk = await writeImage(imagePayload, gdeyDriver ? 'red' : 'bw', directPrepare);
     }
   } else {
     addLog("当前固件不支持此颜色模式。");
@@ -2169,6 +2547,8 @@ async function sendimg(options = {}) {
   startImageRefreshWait(targetSlot != null ? 'slot' : 'refresh');
   const completionSent = savingSlot
     ? await write(EpdCmd.SET_SLOT, encodeSlotAction(refreshAfterSave ? 3 : 2, targetSlot))
+    : e6FrameCache
+      ? await write(EpdCmd.SET_SLOT, encodeSlotAction(5, slotState.count))
     : await write(EpdCmd.REFRESH);
   if (!completionSent) {
     cancelImageRefreshWait();
@@ -2231,6 +2611,9 @@ function updateButtonStatus(forceDisabled = imageTransferActive || slotActionPen
   document.getElementById("calendarmodebutton").disabled = status;
   document.getElementById("clockmodebutton").disabled = status;
   document.getElementById("clearscreenbutton").disabled = status;
+  const batteryStatus = document.getElementById('batteryStatus');
+  if (batteryStatus) batteryStatus.disabled = Boolean(status);
+  updateCalendarThemeAvailability();
   document.getElementById("sendimgbutton").disabled = status;
   const calendarStyleSend = document.getElementById("calendarStyleSend");
   if (calendarStyleSend) calendarStyleSend.disabled = Boolean(status);
@@ -2444,7 +2827,17 @@ function handleNotify(value, idx) {
     epdpins.value = bytes2hex(data.slice(0, 7));
     if (data.length > 10) epdpins.value += bytes2hex(data.slice(10, 11));
     currentPinsValue = epdpins.value.trim().toLowerCase();
-    epddriver.value = bytes2hex(data.slice(7, 8));
+    const reportedDriver = bytes2hex(data.slice(7, 8));
+    if (pendingDriverValue && reportedDriver !== pendingDriverValue) {
+      addLog(`忽略旧驱动配置 ${reportedDriver}，等待当前选择 ${pendingDriverValue} 的回读。`, '⇓');
+    } else {
+      epddriver.value = reportedDriver;
+      if (pendingDriverValue === reportedDriver) {
+        pendingDriverValue = null;
+        if (pendingDriverTimer != null) clearTimeout(pendingDriverTimer);
+        pendingDriverTimer = null;
+      }
+    }
     const ledFlags = data.length > 14 ? data[14] : 1;
     const ledEnabled = (ledFlags & 0x01) !== 0;
     const ledChase = data[15] === 2 && (ledFlags & 0x02) === 0;
@@ -2467,7 +2860,10 @@ function handleNotify(value, idx) {
     if (textDecoder == null) textDecoder = new TextDecoder();
     const msg = textDecoder.decode(data);
     if (!msg.startsWith('chunk=')) addLog(msg, '⇓');
-    if (applySlotsMessage(msg)) {
+    const deviceStatus = parseDeviceStatus(msg);
+    if (deviceStatus) {
+      updateBatteryStatus(deviceStatus);
+    } else if (applySlotsMessage(msg)) {
       addLog('图片槽位状态已更新。');
     } else if (msg === 'ready=1') {
       if (!completeImagePrepare()) completeImageRefresh();
@@ -2488,6 +2884,8 @@ function handleNotify(value, idx) {
         status.textContent = errorMessage;
         addLog(errorMessage);
       }
+    } else if (handleImageModeNotification(msg)) {
+      // Image-mode acknowledgement is consumed by requestImageMode().
     } else if (msg.startsWith('font=')) {
       const enabled = msg.startsWith('font=1');
       const format = clockFontVersion >= 2 ? '高清 V2 40 × 80' : '兼容 V1 32 × 80';
@@ -2500,12 +2898,14 @@ function handleNotify(value, idx) {
       const mtuParts = msg.substring(4).trim().split(/\s+/);
       const mtuSize = parseInt(mtuParts[0], 10);
       rleSupport = mtuParts.includes('rle=1');
+      gray4Support = mtuParts.includes('gray4=1');
       slotStreamSupport = mtuParts.includes('slot_stream=1');
       clockFontSupport = mtuParts.includes('clock_font=1');
       if (clockFontSupport) setClockFontFormat(mtuParts.includes('cf2=1') ? 2 : 1);
       document.getElementById('mtusize').value = mtuSize;
       addLog(`MTU 已更新为: ${mtuSize}`);
       if (rleSupport) addLog('设备已启用 RLE 压缩传输。');
+      updateGDEYImageModeControls();
       if (clockFontSupport) void queryClockFont();
     } else if (msg.startsWith('t=') && msg.length > 2) {
       const t = parseInt(msg.substring(2)) + new Date().getTimezoneOffset() * 60;
@@ -2541,7 +2941,7 @@ async function connect() {
     addLog(`固件版本: ${firmwareVersion.label}`);
   } catch (e) {
     console.error(e);
-    firmwareVersion = { label: '未知', ledControl: false, directImagePrepare: false, outdated: true };
+    firmwareVersion = { label: '未知', ledControl: false, directImagePrepare: false, e6DirectPass: false, e6FrameCache: false, outdated: true };
   }
 
   if (firmwareVersion.outdated) {
@@ -2571,6 +2971,7 @@ async function connect() {
   }
 
   await write(EpdCmd.INIT);
+  await write(EpdCmd.GET_STATUS);
 
   document.getElementById("connectbutton").innerHTML = '断开';
   updateButtonStatus();
@@ -2659,6 +3060,22 @@ function renderTransformedImagePreview(sourceImageData, commitHistory = false) {
   }
 }
 
+function renderCollageImagePreview(sourceImageData, dither, commitHistory = false) {
+  ditherSourceImageData = cloneImageData(sourceImageData);
+  ditherPreviewActive = true;
+  calendarStyleImageActive = false;
+  if (dither) {
+    renderTransformedImagePreview(sourceImageData, commitHistory);
+    return;
+  }
+  ctx.putImageData(sourceImageData, 0, 0);
+  if (paintManager && paintManager.setBaseImageData) paintManager.setBaseImageData();
+  if (commitHistory && paintManager) {
+    paintManager.clearHistory();
+    paintManager.saveToHistory();
+  }
+}
+
 function resetPaintForImageLoad() {
   if (!paintManager) return;
   paintManager.setActiveTool(null, '');
@@ -2667,6 +3084,7 @@ function resetPaintForImageLoad() {
 }
 
 function updateImage(file = null) {
+  if (canvas) canvas.dataset.collageEditing = '0';
   const imageFile = document.getElementById('imageFile');
   const selectedFile = file || (imageFile.files.length > 0 ? imageFile.files[0] : null);
   if (!selectedFile) {
@@ -2708,10 +3126,18 @@ function updateDitcherOptions(options = {}) {
   const selectedOption = epdDriverSelect.options[epdDriverSelect.selectedIndex];
   const colorMode = selectedOption.getAttribute('data-color');
   const canvasSize = selectedOption.getAttribute('data-size');
+  const ditherAlgorithm = selectedOption.getAttribute('data-dither');
 
   updateDriverMeta(selectedOption);
+  updateCalendarThemeAvailability();
+  setThreeColorAccent(selectedOption.getAttribute('data-accent'));
   if (colorMode) document.getElementById('ditherMode').value = colorMode;
   if (canvasSize) document.getElementById('canvasSize').value = canvasSize;
+  const ditherSelect = document.getElementById('ditherAlg');
+  if (ditherAlgorithm) ditherSelect.value = ditherAlgorithm;
+  else if (ditherSelect.value === 'tgzAuto') ditherSelect.value = 'floyd-steinberg';
+
+  updateGDEYImageModeControls();
 
   updateCanvasSize(options);
   if (paintManager && typeof paintManager.refreshMatterTemplatePalette === 'function') {
@@ -2752,7 +3178,8 @@ function getDitherSettings() {
     saturation: parseFloat(document.getElementById('ditherSaturation').value),
     alg: document.getElementById('ditherAlg').value,
     strength: parseFloat(document.getElementById('ditherStrength').value),
-    mode: document.getElementById('ditherMode').value
+    mode: document.getElementById('ditherMode').value,
+    filter: document.getElementById('tgzFilter')?.value || 'none'
   };
 }
 
@@ -2770,8 +3197,13 @@ function processCanvasImageData() {
     ditherSourceImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   }
   const sourceImageData = cloneImageData(ditherSourceImageData);
+  if (isGDEY037T03Gray4Driver(document.getElementById('epddriver')) && getGDEYImageMode() === 'gray4') {
+    gdeyGray4Processed = encodeGDEY037T03Gray4(sourceImageData, settings);
+    return gdeyGray4Processed.payload;
+  }
+  gdeyGray4Processed = null;
   if (calendarStyleImageActive) return processImageData(sourceImageData, settings.mode);
-  const imageData = prepareDitherImageData(sourceImageData);
+  const imageData = applyTgzFilter(prepareDitherImageData(sourceImageData), settings.filter);
   return processImageData(ditherImage(imageData, settings.alg, settings.strength, settings.mode, settings), settings.mode);
 }
 
@@ -2783,7 +3215,9 @@ function convertDithering() {
 
   const settings = getDitherSettings();
   const processedData = processCanvasImageData();
-  const finalImageData = decodeProcessedData(processedData, canvas.width, canvas.height, settings.mode);
+  const finalImageData = isGDEYGraySelected() && gdeyGray4Processed
+    ? new ImageData(new Uint8ClampedArray(gdeyGray4Processed.preview), canvas.width, canvas.height)
+    : decodeProcessedData(processedData, canvas.width, canvas.height, settings.mode);
   ctx.putImageData(finalImageData, 0, 0);
   ditherPreviewActive = true;
 
@@ -2813,8 +3247,10 @@ function resetDitherAdjustments() {
 const CALENDAR_PREVIEW_COLORS = Object.freeze({
   white: '#ffffff',
   black: '#000000',
-  red: '#d71920',
-  yellow: '#f5d328'
+  red: '#ff0000',
+  yellow: '#ffff00',
+  green: '#29cc14',
+  blue: '#0000ff'
 });
 const CALENDAR_FONT_DEFAULTS = Object.freeze({
   title: 28,
@@ -2861,14 +3297,31 @@ function getCalendarStyleProfile() {
   return {
     width: canvas?.width || 768,
     height: canvas?.height || 552,
-    numericColorMode: mode === 'sevenColor' ? 7 : (mode === 'fourColor' ? 4 : (mode === 'threeColor' ? 3 : 2))
+    numericColorMode: mode === 'sevenColor' ? 7 :
+      (mode === 'sixColor' ? 6 : (mode === 'fourColor' ? 4 : (mode === 'threeColor' ? 3 : 2)))
   };
 }
 
 function getCalendarPreviewColors(profile) {
-  if (profile.numericColorMode >= 4) return CALENDAR_PREVIEW_COLORS;
-  if (profile.numericColorMode === 3) return { ...CALENDAR_PREVIEW_COLORS, yellow: CALENDAR_PREVIEW_COLORS.white };
-  return { ...CALENDAR_PREVIEW_COLORS, red: CALENDAR_PREVIEW_COLORS.black, yellow: CALENDAR_PREVIEW_COLORS.white };
+  if (profile.numericColorMode >= 6) return CALENDAR_PREVIEW_COLORS;
+  if (profile.numericColorMode >= 4) {
+    return { ...CALENDAR_PREVIEW_COLORS, green: CALENDAR_PREVIEW_COLORS.black, blue: CALENDAR_PREVIEW_COLORS.black };
+  }
+  if (profile.numericColorMode === 3) {
+    return {
+      ...CALENDAR_PREVIEW_COLORS,
+      yellow: CALENDAR_PREVIEW_COLORS.white,
+      green: CALENDAR_PREVIEW_COLORS.black,
+      blue: CALENDAR_PREVIEW_COLORS.black
+    };
+  }
+  return {
+    ...CALENDAR_PREVIEW_COLORS,
+    red: CALENDAR_PREVIEW_COLORS.black,
+    yellow: CALENDAR_PREVIEW_COLORS.white,
+    green: CALENDAR_PREVIEW_COLORS.black,
+    blue: CALENDAR_PREVIEW_COLORS.black
+  };
 }
 
 function getLunarInfo(date) {
@@ -3036,6 +3489,8 @@ function getCalendarWeekdays(weekStart) {
 
 function getCalendarAccent(profile, settings, colors) {
   if (settings.accent === 'yellow') return profile.numericColorMode >= 4 ? colors.yellow : colors.black;
+  if (settings.accent === 'green') return profile.numericColorMode >= 6 ? colors.green : colors.black;
+  if (settings.accent === 'blue') return profile.numericColorMode >= 6 ? colors.blue : colors.black;
   if (settings.accent === 'black') return colors.black;
   return colors.red;
 }
@@ -3043,7 +3498,10 @@ function getCalendarAccent(profile, settings, colors) {
 function drawCalendarMonthGrid(context, date, profile, settings, bounds, options = {}) {
   const colors = getCalendarPreviewColors(profile);
   const accent = getCalendarAccent(profile, settings, colors);
+  const sixColor = profile.numericColorMode >= 6;
   const softAccent = profile.numericColorMode >= 4 ? colors.yellow : colors.white;
+  const todayFill = sixColor ? colors.yellow : softAccent;
+  const todayStroke = sixColor ? colors.green : accent;
   const weekStart = Number(document.getElementById('weekStart')?.value) || 0;
   const year = date.getFullYear();
   const month = date.getMonth();
@@ -3059,7 +3517,9 @@ function drawCalendarMonthGrid(context, date, profile, settings, bounds, options
 
   getCalendarWeekdays(weekStart).forEach((weekday, index) => {
     const x = bounds.x + index * cellWidth;
-    context.fillStyle = weekday.weekend ? accent : softAccent;
+    context.fillStyle = sixColor
+      ? (weekday.day === 0 ? colors.red : weekday.day === 6 ? colors.blue : colors.yellow)
+      : (weekday.weekend ? accent : softAccent);
     if (options.squareHeader) context.fillRect(x + 1, bounds.y, cellWidth - 2, weekHeight);
     else {
       calendarRoundRect(context, x + 2, bounds.y, cellWidth - 4, weekHeight, Math.min(8, weekHeight / 3));
@@ -3068,7 +3528,7 @@ function drawCalendarMonthGrid(context, date, profile, settings, bounds, options
     drawCalendarText(context, weekday.text, x + cellWidth / 2, bounds.y + weekHeight * 0.7, {
       size: Math.max(10, Math.round(calendarFontSize(settings, 'weekday', profile) * 0.7)),
       weight: 800,
-      color: weekday.weekend ? colors.white : accent,
+      color: sixColor ? (weekday.weekend ? colors.white : colors.black) : (weekday.weekend ? colors.white : accent),
       align: 'center'
     });
   });
@@ -3099,10 +3559,10 @@ function drawCalendarMonthGrid(context, date, profile, settings, bounds, options
     const actualWeekday = new Date(year, month, day).getDay();
     const isToday = day === date.getDate();
     if (isToday) {
-      context.fillStyle = softAccent;
+      context.fillStyle = todayFill;
       calendarRoundRect(context, x + 5, y + 4, Math.max(8, cellWidth - 10), Math.max(8, cellHeight - 8), Math.min(9, cellHeight / 5));
       context.fill();
-      context.strokeStyle = accent;
+      context.strokeStyle = todayStroke;
       context.lineWidth = 2;
       context.stroke();
     }
@@ -3111,7 +3571,9 @@ function drawCalendarMonthGrid(context, date, profile, settings, bounds, options
     drawCalendarText(context, day, textX, numberY, {
       size: numberSize,
       weight: isToday ? 900 : 800,
-      color: isToday || actualWeekday === 0 || actualWeekday === 6 ? accent : colors.black,
+      color: sixColor
+        ? (isToday ? colors.green : (actualWeekday === 0 ? colors.red : (actualWeekday === 6 ? colors.blue : colors.black)))
+        : (isToday || actualWeekday === 0 || actualWeekday === 6 ? accent : colors.black),
       align: 'center'
     });
     if (settings.showLunar) {
@@ -3119,7 +3581,7 @@ function drawCalendarMonthGrid(context, date, profile, settings, bounds, options
       drawCalendarText(context, label.text, textX, Math.min(y + cellHeight - 5, numberY + labelSize + 3), {
         size: labelSize,
         weight: 700,
-        color: label.festival ? accent : colors.black,
+        color: sixColor ? (label.festival ? colors.red : colors.green) : (label.festival ? accent : colors.black),
         align: 'center'
       });
     }
@@ -3718,6 +4180,7 @@ function initEventHandlers() {
   initLedColorControl();
   initCalendarStyleControls();
   updateDriverMeta();
+  document.getElementById('batteryStatus')?.addEventListener('click', refreshBatteryStatus);
   document.getElementById("clear-canvas").addEventListener("click", clearCanvas);
   const imageDropZone = document.getElementById('imageDropZone');
   const imageFile = document.getElementById('imageFile');

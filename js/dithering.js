@@ -24,11 +24,209 @@ const threeColorPalette = [
   { name: "白色", r: 255, g: 255, b: 255, value: 0x01 },
   { name: "红色", r: 255, g: 0, b: 0, value: 0x02 }
 ];
+let threeColorAccentIsYellow = false;
+
+function setThreeColorAccent(accent) {
+  const yellow = accent === 'yellow';
+  threeColorAccentIsYellow = yellow;
+  Object.assign(threeColorPalette[2], yellow
+    ? { name: '黄色', r: 255, g: 255, b: 0 }
+    : { name: '红色', r: 255, g: 0, b: 0 });
+  paletteLabCache.delete('threeColor');
+  const option = document.querySelector('#ditherMode option[value="threeColor"]');
+  if (option) option.textContent = yellow ? '三色(黑白黄)' : '三色(黑白红)';
+}
 
 const blackWhitePalette = [
   { name: "黑色", r: 0, g: 0, b: 0, value: 0x00 },
   { name: "白色", r: 255, g: 255, b: 255, value: 0x01 }
 ];
+
+// Readable reconstruction of the automatic four/six-color quantizer used by
+// 图公主 App 2.5.0. Palette indexes are mapped back to this project's existing
+// native transfer colors after the App-compatible error diffusion completes.
+const tgzFourIdealPalette = Object.freeze([
+  Object.freeze([0, 0, 0]),
+  Object.freeze([255, 255, 255]),
+  Object.freeze([255, 255, 0]),
+  Object.freeze([255, 0, 0])
+]);
+
+const tgzSixIdealPalette = Object.freeze([
+  ...tgzFourIdealPalette,
+  Object.freeze([0, 255, 0]),
+  Object.freeze([0, 0, 255])
+]);
+
+const tgzSixCalibratedPalette = Object.freeze([
+  Object.freeze([0, 0, 0]),
+  Object.freeze([255, 255, 255]),
+  Object.freeze([255, 235, 0]),
+  Object.freeze([154, 0, 0]),
+  Object.freeze([20, 85, 16]),
+  Object.freeze([0, 36, 154])
+]);
+
+const tgzFourTransferPalette = Object.freeze([
+  fourColorPalette[0], fourColorPalette[1], fourColorPalette[3], fourColorPalette[2]
+]);
+
+const tgzSixTransferPalette = Object.freeze([
+  rgbPalette[4], rgbPalette[5], rgbPalette[0],
+  rgbPalette[3], rgbPalette[1], rgbPalette[2]
+]);
+
+function tgzClampByte(value) {
+  return value < 0 ? 0 : value > 255 ? 255 : value;
+}
+
+function tgzRgbToLab(r, g, b) {
+  const linear = (value) => {
+    const normalized = value / 255;
+    return normalized > 0.04045
+      ? Math.pow((normalized + 0.055) / 1.055, 2.4)
+      : normalized / 12.92;
+  };
+  const red = linear(r);
+  const green = linear(g);
+  const blue = linear(b);
+  const x = (red * 0.4124564 + green * 0.3575761 + blue * 0.1804375) * 100;
+  const y = (red * 0.2126729 + green * 0.7151522 + blue * 0.072175) * 100;
+  const z = (red * 0.0193339 + green * 0.119192 + blue * 0.9503041) * 100;
+  const pivot = (value) => value > 0.008856
+    ? Math.cbrt(value)
+    : 7.787 * value + 16 / 116;
+  const fx = pivot(x / 95.047);
+  const fy = pivot(y / 100);
+  const fz = pivot(z / 108.883);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function tgzNearestRgb(r, g, b, palette) {
+  let bestIndex = 0;
+  let bestDistance = Infinity;
+  for (let index = 0; index < palette.length; index++) {
+    const color = palette[index];
+    const dr = r - color[0];
+    const dg = g - color[1];
+    const db = b - color[2];
+    const distance = dr * dr + dg * dg + db * db;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  }
+  return bestIndex;
+}
+
+function getTgzSixColorLuts() {
+  const luts = typeof globalThis !== 'undefined' ? globalThis.TGZ_SIX_COLOR_LUTS : null;
+  if (!luts || !(luts.gamutRgb instanceof Uint8Array) ||
+      !(luts.paletteIndex instanceof Uint8Array) ||
+      luts.gamutRgb.length !== 786432 || luts.paletteIndex.length !== 262144) {
+    throw new Error('TGZ 六色 LUT 未正确加载，请刷新上位机页面。');
+  }
+  return luts;
+}
+
+function createTgzSixColorChooser() {
+  const luts = getTgzSixColorLuts();
+  const paletteLab = tgzSixIdealPalette.map((color) => tgzRgbToLab(color[0], color[1], color[2]));
+  return (r, g, b) => {
+    const lab = tgzRgbToLab(r, g, b);
+    if (lab[1] < -10 || lab[2] < -35) {
+      const gamutIndex = (((r & 0xfc) << 10) | ((g & 0xfc) << 4) | (b >> 2)) * 3;
+      const correctedR = r - ((r - luts.gamutRgb[gamutIndex]) >> 2);
+      const correctedG = g - ((g - luts.gamutRgb[gamutIndex + 1]) >> 2);
+      const correctedB = b - ((b - luts.gamutRgb[gamutIndex + 2]) >> 2);
+      const index = ((correctedR >> 2) & 0x3f) << 12 |
+        ((correctedG >> 2) & 0x3f) << 6 |
+        ((correctedB >> 2) & 0x3f);
+      const selected = luts.paletteIndex[index];
+      return selected < 6 ? selected : 0;
+    }
+
+    let bestIndex = 0;
+    let bestDistance = Infinity;
+    for (let index = 0; index < paletteLab.length; index++) {
+      const target = paletteLab[index];
+      const dl = lab[0] - target[0];
+      const da = lab[1] - target[1];
+      const db = lab[2] - target[2];
+      const distance = Math.trunc(2 * dl * dl + 0.8 * da * da + db * db);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+    return bestIndex;
+  };
+}
+
+function createTgzAtkinsonRows(width) {
+  return Array.from({ length: 9 }, () => new Int32Array(width));
+}
+
+function addTgzAtkinsonError(rows, width, x, row, red, green, blue) {
+  if (x < 0 || x >= width || row < 0 || row > 2) return;
+  const offset = row * 3;
+  rows[offset][x] += red;
+  rows[offset + 1][x] += green;
+  rows[offset + 2][x] += blue;
+}
+
+function spreadTgzAtkinsonError(rows, width, x, red, green, blue) {
+  addTgzAtkinsonError(rows, width, x + 1, 0, red, green, blue);
+  addTgzAtkinsonError(rows, width, x + 2, 0, red, green, blue);
+  addTgzAtkinsonError(rows, width, x - 1, 1, red, green, blue);
+  addTgzAtkinsonError(rows, width, x, 1, red, green, blue);
+  addTgzAtkinsonError(rows, width, x + 1, 1, red, green, blue);
+  addTgzAtkinsonError(rows, width, x, 2, red, green, blue);
+}
+
+function advanceTgzAtkinsonRows(rows) {
+  rows[0] = rows[3]; rows[1] = rows[4]; rows[2] = rows[5];
+  rows[3] = rows[6]; rows[4] = rows[7]; rows[5] = rows[8];
+  rows[6] = new Int32Array(rows[0].length);
+  rows[7] = new Int32Array(rows[0].length);
+  rows[8] = new Int32Array(rows[0].length);
+}
+
+function tgzAutoDither(imageData, mode) {
+  const width = imageData.width;
+  const height = imageData.height;
+  const data = imageData.data;
+  const rows = createTgzAtkinsonRows(width);
+  const sixColor = mode === 'sixColor';
+  const chooseColor = sixColor
+    ? createTgzSixColorChooser()
+    : (r, g, b) => tgzNearestRgb(r, g, b, tgzFourIdealPalette);
+  const errorPalette = sixColor ? tgzSixCalibratedPalette : tgzFourIdealPalette;
+  const transferPalette = sixColor ? tgzSixTransferPalette : tgzFourTransferPalette;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const pixel = y * width + x;
+      const offset = pixel * 4;
+      // App stores full errors, then consumes one eighth using rounded integer arithmetic.
+      const red = tgzClampByte(data[offset] + ((rows[0][x] + 4) >> 3));
+      const green = tgzClampByte(data[offset + 1] + ((rows[1][x] + 4) >> 3));
+      const blue = tgzClampByte(data[offset + 2] + ((rows[2][x] + 4) >> 3));
+      const colorIndex = chooseColor(red, green, blue);
+      const errorColor = errorPalette[colorIndex];
+      const transferColor = transferPalette[colorIndex];
+      data[offset] = transferColor.r;
+      data[offset + 1] = transferColor.g;
+      data[offset + 2] = transferColor.b;
+      spreadTgzAtkinsonError(
+        rows, width, x,
+        red - errorColor[0], green - errorColor[1], blue - errorColor[2]
+      );
+    }
+    advanceTgzAtkinsonRows(rows);
+  }
+  return imageData;
+}
 
 // ACeP display colors adapted from paperlesspaper/epdoptimize (Apache-2.0).
 // Dithering and preview use calibrated RGB. The native nibble remains the
@@ -289,8 +487,22 @@ function findClosestColor(r, g, b, mode) {
 
   // 三色模式下优先检测红色
   if (mode === 'threeColor') {
-    if (r > 125 && r > g * 1.28 && r > b * 1.28 && r - Math.max(g, b) > 32) {
-      return threeColorPalette[2]; // 红色
+    if (r > 125 && r > g * 1.28 && r > b * 1.28 && r - Math.max(g, b) > 32)
+      return threeColorPalette[2];
+    if (threeColorAccentIsYellow) {
+      let closest = threeColorPalette[0];
+      let minDistance = Infinity;
+      for (const color of threeColorPalette) {
+        const dr = r - color.r;
+        const dg = g - color.g;
+        const db = b - color.b;
+        const distance = dr * dr + dg * dg + db * db;
+        if (distance < minDistance) {
+          minDistance = distance;
+          closest = color;
+        }
+      }
+      return closest;
     }
     return luminance < 128 ? threeColorPalette[0] : threeColorPalette[1]; // 黑色或白色
   }
@@ -814,7 +1026,7 @@ function getEsp32Palette(mode) {
     ];
   }
   if (mode === 'threeColor') {
-    return [{ r: 0, g: 0, b: 0 }, { r: 255, g: 255, b: 255 }, { r: 255, g: 0, b: 0 }];
+    return threeColorPalette.map(color => ({ r: color.r, g: color.g, b: color.b }));
   }
   return [{ r: 0, g: 0, b: 0 }, { r: 255, g: 255, b: 255 }];
 }
@@ -852,6 +1064,50 @@ function adjustEsp32Color(r, g, b, settings) {
     g: Math.min(255, Math.max(0, adjustedG)),
     b: Math.min(255, Math.max(0, adjustedB))
   };
+}
+
+function setGDEY1bppPixel(data, width, x, y, value) {
+  const byteIndex = y * Math.ceil(width / 8) + Math.floor(x / 8);
+  const mask = 0x80 >> (x & 7);
+  if (value) data[byteIndex] |= mask;
+  else data[byteIndex] &= ~mask;
+}
+
+function getGDEY1bppPixel(data, width, x, y) {
+  const byteIndex = y * Math.ceil(width / 8) + Math.floor(x / 8);
+  return (data[byteIndex] & (0x80 >> (x & 7))) ? 1 : 0;
+}
+
+function encodeGDEY037T03Gray4(imageData, settings = {}) {
+  const sourceWidth = 416, sourceHeight = 240, nativeWidth = 240, nativeHeight = 416;
+  const planeLength = nativeWidth * nativeHeight / 8;
+  if (!imageData || imageData.width !== sourceWidth || imageData.height !== sourceHeight)
+    throw new Error('GDEY037T03 gray4 encoder requires a 416x240 RGBA image');
+  const oldPlane = new Uint8Array(planeLength), newPlane = new Uint8Array(planeLength);
+  const preview = new Uint8ClampedArray(imageData.data.length);
+  for (let y = 0; y < sourceHeight; y++) for (let x = 0; x < sourceWidth; x++) {
+    const i = (y * sourceWidth + x) * 4;
+    const c = adjustEsp32Color(imageData.data[i], imageData.data[i + 1], imageData.data[i + 2], settings);
+    const value = Math.min(3, Math.floor((0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 64));
+    setGDEY1bppPixel(oldPlane, nativeWidth, y, sourceWidth - 1 - x, value >> 1);
+    setGDEY1bppPixel(newPlane, nativeWidth, y, sourceWidth - 1 - x, value & 1);
+    const gray = value * 85; preview[i] = gray; preview[i + 1] = gray; preview[i + 2] = gray; preview[i + 3] = 255;
+  }
+  const payload = new Uint8Array(planeLength * 2); payload.set(oldPlane); payload.set(newPlane, planeLength);
+  return { oldPlane, newPlane, payload, preview };
+}
+
+function decodeGDEY037T03Gray4(payload, width = 240, height = 416) {
+  const planeLength = width * height / 8;
+  if (!(payload instanceof Uint8Array) || payload.length !== planeLength * 2) throw new Error('invalid GDEY037T03 gray4 payload');
+  const data = new Uint8ClampedArray(416 * 240 * 4);
+  for (let y = 0; y < 240; y++) for (let x = 0; x < 416; x++) {
+    const value = (getGDEY1bppPixel(payload, width, y, 415 - x) << 1) |
+                  getGDEY1bppPixel(payload.subarray(planeLength), width, y, 415 - x);
+    const i = (y * 416 + x) * 4, gray = value * 85;
+    data[i] = gray; data[i + 1] = gray; data[i + 2] = gray; data[i + 3] = 255;
+  }
+  return { width: 416, height: 240, data };
 }
 
 function applyEsp32Adjustments(imageData, settings) {
@@ -949,6 +1205,14 @@ function esp32DitherImage(
 }
 
 function ditherImage(imageData, alg, strength, mode, adjustments = {}) {
+  if (alg === 'tgzAuto') {
+    if (mode === 'fourColor' || mode === 'sixColor') {
+      applyEsp32Adjustments(imageData, adjustments);
+      return tgzAutoDither(imageData, mode);
+    }
+    // The recovered App path only defines four/six-color behavior.
+    alg = 'atkinson';
+  }
   if (alg === 'epdOptimize') {
     const sourceData = mode === 'sevenColor' ? new Uint8ClampedArray(imageData.data) : null;
     applyEsp32Adjustments(imageData, adjustments);
@@ -1042,10 +1306,10 @@ function decodeProcessedData(processedData, width, height, mode) {
         const redWhiteBit = (redWhiteData[byteIndex] >> bitIndex) & 1;
         const index = (y * width + x) * 4;
         if (!redWhiteBit) {
-          // 红色
-          data[index] = 255;
-          data[index + 1] = 0;
-          data[index + 2] = 0;
+          const accent = threeColorPalette[2];
+          data[index] = accent.r;
+          data[index + 1] = accent.g;
+          data[index + 2] = accent.b;
         } else {
           // 黑或白
           data[index] = blackWhiteBit ? 255 : 0;
