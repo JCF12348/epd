@@ -27,6 +27,15 @@ let clockFontSupport = false;
 let clockFontVersion = 2;
 let clockFontBusy = false;
 let clockFontSourceCanvas = null;
+let layoutImageSupport = false;
+let layoutImageBusy = false;
+let layoutImageMask = 0;
+let layoutImageBeginRequest = null;
+const layoutImageEditors = [0, 1].map(() => ({
+  payload: null, preview: null, source: null, fileName: '', loadToken: 0,
+  zoom: 1, offsetX: 0, offsetY: 0,
+}));
+let layoutImageEditingIndex = -1;
 let imageTransferActive = false;
 let imageRefreshPending = false;
 let imageRefreshTimer = null;
@@ -69,6 +78,7 @@ const CLOCK_FONT_V2_COLON_WIDTH = 8;
 let CLOCK_FONT_GLYPH_WIDTH = CLOCK_FONT_V2_GLYPH_WIDTH;
 const CLOCK_FONT_GLYPH_HEIGHT = 80;
 const CLOCK_FONT_GLYPHS = '0123456789:';
+const LAYOUT_IMAGE_BEGIN_TIMEOUT_MS = 15000;
 let CLOCK_FONT_GLYPH_BYTES = CLOCK_FONT_GLYPH_WIDTH * CLOCK_FONT_GLYPH_HEIGHT / 8;
 let CLOCK_FONT_DATA_SIZE = 4080;
 
@@ -122,6 +132,7 @@ const EpdCmd = {
   GET_SLOTS: 0x35,
   SET_FONT: 0x36,
   SET_IMAGE_MODE: 0x37,
+  SET_LAYOUT_IMAGE: 0x38,
 
   SET_CONFIG: 0x90,
   SYS_RESET: 0x91,
@@ -182,8 +193,13 @@ async function refreshBatteryStatus() {
 }
 
 function isCalendarThemeSupported(driverValue) {
-  const fourInchModels = [0x01, 0x02, 0x03, 0x04, 0x05, 0x16, 0x17];
-  return fourInchModels.includes(parseInt(driverValue || '0', 16));
+  const themeModels = [0x01, 0x02, 0x03, 0x04, 0x05, 0x07, 0x16, 0x17, 0x27];
+  return themeModels.includes(parseInt(driverValue || '0', 16));
+}
+
+function isLayoutImageSupported(driverValue) {
+  const model = parseInt(driverValue || '0', 16);
+  return model === 0x07 || model === 0x27;
 }
 
 function updateCalendarThemeAvailability() {
@@ -194,7 +210,391 @@ function updateCalendarThemeAvailability() {
   const supported = isCalendarThemeSupported(driver.value);
   select.disabled = !supported;
   button.disabled = !supported || !isBleConnected();
-  button.title = supported ? '保存主题并立即刷新日历' : '仅4.2寸提供五套主题';
+  button.title = supported ? '保存主题并立即刷新日历' : '当前型号未提供五套主题';
+  updateLayoutImageAvailability();
+}
+
+function updateLayoutImageAvailability() {
+  const driver = document.getElementById('epddriver');
+  const panel = document.getElementById('layoutImagePanel');
+  const toggle = document.getElementById('layoutImagePanelToggle');
+  if (!driver || !panel || !toggle) return;
+  const selected = isLayoutImageSupported(driver.value);
+  const enabled = selected && layoutImageSupport && isBleConnected() && !layoutImageBusy;
+  toggle.hidden = !selected;
+  toggle.disabled = !selected;
+  if (!selected) toggle.setAttribute('aria-expanded', 'false');
+  panel.hidden = !selected || toggle.getAttribute('aria-expanded') !== 'true';
+  panel.querySelectorAll('[data-device-action]').forEach(button => { button.disabled = !enabled; });
+  panel.querySelectorAll('[data-layout-edit]').forEach(button => {
+    const index = Number(button.dataset.layoutEdit);
+    button.disabled = layoutImageBusy || !document.getElementById(`layoutImageFile${index}`)?.files?.[0];
+  });
+  panel.querySelectorAll('[data-layout-upload]').forEach(button => {
+    const index = Number(button.dataset.layoutUpload);
+    button.disabled = !enabled || !isLayoutImageReady(layoutImageEditors[index]);
+  });
+  const bothSelected = layoutImageEditors.every(isLayoutImageReady);
+  const uploadBoth = document.getElementById('layoutImageUploadBoth');
+  if (uploadBoth) uploadBoth.disabled = !enabled || !bothSelected;
+  const status = document.getElementById('layoutImageStatus');
+  if (status && selected && !layoutImageSupport)
+    status.textContent = isBleConnected() ? '当前固件未启用双图片断电保存。' : '连接设备后可上传两张布局图片。';
+}
+
+function isLayoutImageReady(editor) {
+  return !!(editor?.payload || editor?.source);
+}
+
+function toggleLayoutImagePanel() {
+  const panel = document.getElementById('layoutImagePanel');
+  const toggle = document.getElementById('layoutImagePanelToggle');
+  if (!panel || !toggle || toggle.hidden) return;
+  const expanded = toggle.getAttribute('aria-expanded') !== 'true';
+  toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  panel.hidden = !expanded;
+  if (expanded) layoutImageEditors.forEach((_, index) => renderLayoutImageEditor(index));
+}
+
+function updateLayoutImageStatus(mask) {
+  layoutImageMask = mask & 3;
+  const status = document.getElementById('layoutImageStatus');
+  if (!status) return;
+  const names = [];
+  if (layoutImageMask & 1) names.push('上框图片');
+  if (layoutImageMask & 2) names.push('下框图片');
+  status.textContent = names.length ? `${names.join('、')}已保存，断电后保留。` : '当前两个框均使用默认日期和温度。';
+}
+
+function clearLayoutImageBeginRequest(result) {
+  if (!layoutImageBeginRequest) return false;
+  clearTimeout(layoutImageBeginRequest.timer);
+  const resolve = layoutImageBeginRequest.resolve;
+  layoutImageBeginRequest = null;
+  resolve(result);
+  return true;
+}
+
+function startLayoutImageBeginWait(index) {
+  clearLayoutImageBeginRequest(false);
+  return new Promise(resolve => {
+    layoutImageBeginRequest = {
+      index,
+      resolve,
+      timer: setTimeout(() => clearLayoutImageBeginRequest(false), LAYOUT_IMAGE_BEGIN_TIMEOUT_MS),
+    };
+  });
+}
+
+function processLayoutFourColorImage(sourceImageData) {
+  const settings = { ...getDitherSettings(), mode: 'fourColor' };
+  const imageData = applyTgzFilter(prepareDitherImageData(sourceImageData), settings.filter);
+  const payload = processImageData(
+    ditherImage(imageData, settings.alg, settings.strength, settings.mode, settings), settings.mode);
+  return {
+    payload: new Uint8Array(payload),
+    preview: decodeProcessedData(payload, sourceImageData.width, sourceImageData.height, settings.mode),
+  };
+}
+
+function renderLayoutImageEditor(index) {
+  const previewCanvas = document.getElementById(`layoutImageCanvas${index}`);
+  const editor = layoutImageEditors[index];
+  if (!previewCanvas || !editor) return;
+  const context = previewCanvas.getContext('2d', { willReadFrequently: true });
+  const dark = document.body.classList.contains('dark-mode');
+  previewCanvas.classList.toggle('is-adjustable', !!editor.source);
+  context.fillStyle = editor.source || editor.preview ? '#fff' : (dark ? '#171a1f' : '#fff');
+  context.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+  if (editor.preview) {
+    context.putImageData(editor.preview, 0, 0);
+    return;
+  }
+  if (editor.source) {
+    const scale = Math.max(previewCanvas.width / editor.source.naturalWidth,
+      previewCanvas.height / editor.source.naturalHeight) * editor.zoom;
+    const width = editor.source.naturalWidth * scale;
+    const height = editor.source.naturalHeight * scale;
+    context.drawImage(editor.source, (previewCanvas.width - width) / 2 + editor.offsetX,
+      (previewCanvas.height - height) / 2 + editor.offsetY, width, height);
+    const processed = processLayoutFourColorImage(
+      context.getImageData(0, 0, previewCanvas.width, previewCanvas.height));
+    editor.payload = processed.payload;
+    context.putImageData(processed.preview, 0, 0);
+    return;
+  }
+  context.fillStyle = dark ? '#a9b4c2' : '#6e6e73';
+  context.font = '16px Microsoft YaHei, sans-serif';
+  context.textAlign = 'center';
+  const message = editor.fileName ? `正在加载图片\n${editor.fileName.length > 28 ? `${editor.fileName.slice(0, 25)}...` : editor.fileName}` :
+    (index === 0 ? '请选择上框图片' : '请选择下框图片');
+  message.split('\n').forEach((line, lineIndex) =>
+    context.fillText(line, previewCanvas.width / 2, previewCanvas.height / 2 + lineIndex * 24));
+}
+
+function zoomLayoutImage(index, event) {
+  const canvas = document.getElementById(`layoutImageCanvas${index}`);
+  const editor = layoutImageEditors[index];
+  if (!canvas || !editor?.source) return;
+  event.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const px = (event.clientX - rect.left) * canvas.width / rect.width;
+  const py = (event.clientY - rect.top) * canvas.height / rect.height;
+  const base = Math.max(canvas.width / editor.source.naturalWidth, canvas.height / editor.source.naturalHeight);
+  const oldWidth = editor.source.naturalWidth * base * editor.zoom;
+  const oldHeight = editor.source.naturalHeight * base * editor.zoom;
+  const oldX = (canvas.width - oldWidth) / 2 + editor.offsetX;
+  const oldY = (canvas.height - oldHeight) / 2 + editor.offsetY;
+  const imageX = (px - oldX) / oldWidth;
+  const imageY = (py - oldY) / oldHeight;
+  editor.zoom = Math.max(0.2, Math.min(5, editor.zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1)));
+  const newWidth = editor.source.naturalWidth * base * editor.zoom;
+  const newHeight = editor.source.naturalHeight * base * editor.zoom;
+  editor.offsetX = px - imageX * newWidth - (canvas.width - newWidth) / 2;
+  editor.offsetY = py - imageY * newHeight - (canvas.height - newHeight) / 2;
+  editor.payload = null;
+  editor.preview = null;
+  renderLayoutImageEditor(index);
+  updateLayoutImageAvailability();
+}
+
+function initLayoutImageInteraction(index) {
+  const canvas = document.getElementById(`layoutImageCanvas${index}`);
+  if (!canvas || canvas.dataset.interactive === 'true') return;
+  canvas.dataset.interactive = 'true';
+  let drag = null;
+  canvas.addEventListener('wheel', event => zoomLayoutImage(index, event), { passive: false });
+  canvas.addEventListener('pointerdown', event => {
+    const editor = layoutImageEditors[index];
+    if (event.button !== 0 || !editor?.source) return;
+    editor.payload = null;
+    editor.preview = null;
+    drag = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+    canvas.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  canvas.addEventListener('pointermove', event => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const rect = canvas.getBoundingClientRect();
+    const editor = layoutImageEditors[index];
+    editor.offsetX += (event.clientX - drag.x) * canvas.width / rect.width;
+    editor.offsetY += (event.clientY - drag.y) * canvas.height / rect.height;
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+    renderLayoutImageEditor(index);
+  });
+  const finishDrag = event => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    drag = null;
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    updateLayoutImageAvailability();
+  };
+  canvas.addEventListener('pointerup', finishDrag);
+  canvas.addEventListener('pointercancel', finishDrag);
+}
+
+function initLayoutImageEditors() {
+  layoutImageEditors.forEach((_, index) => {
+    initLayoutImageInteraction(index);
+    renderLayoutImageEditor(index);
+  });
+  const cancel = document.getElementById('layoutImageCancelEdit');
+  if (cancel) cancel.hidden = true;
+}
+
+async function loadLayoutImagePreview(index) {
+  const file = document.getElementById(`layoutImageFile${index}`).files?.[0];
+  const editor = layoutImageEditors[index];
+  if (!file || !editor) return;
+  const token = ++editor.loadToken;
+  editor.payload = null;
+  editor.preview = null;
+  editor.source = null;
+  editor.fileName = file.name;
+  editor.zoom = 1;
+  editor.offsetX = 0;
+  editor.offsetY = 0;
+  renderLayoutImageEditor(index);
+  updateLayoutImageAvailability();
+  const status = document.getElementById('layoutImageStatus');
+  const name = index === 0 ? '上框' : '下框';
+  if (status) status.textContent = `${name}图片正在加载预览...`;
+  const image = new Image();
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error('图片文件无法读取'));
+      image.src = objectUrl;
+    });
+    if (token !== editor.loadToken) return;
+    editor.source = image;
+    renderLayoutImageEditor(index);
+    if (status) status.textContent = `${name}图片已显示，可在框内自由缩放、按住拖动后直接上传。`;
+    addLog(`${name}图片预览已加载：${file.name}`);
+  } catch (error) {
+    if (token !== editor.loadToken) return;
+    editor.fileName = '';
+    renderLayoutImageEditor(index);
+    if (status) status.textContent = `${name}图片读取失败，请重新选择。`;
+    addLog(`${name}图片读取失败：${error.message || error}`);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function beginLayoutImageEdit(index) {
+  const file = document.getElementById(`layoutImageFile${index}`)?.files?.[0];
+  if (!file || layoutImageBusy) return false;
+  layoutImageEditingIndex = index;
+  canvas.width = 384;
+  canvas.height = 272;
+  document.getElementById('canvasSize').disabled = true;
+  const mode = document.getElementById('ditherMode');
+  mode.value = 'fourColor';
+  mode.disabled = true;
+  const sendButton = document.getElementById('sendimgbutton');
+  sendButton.textContent = `保存到${index === 0 ? '上框' : '下框'}`;
+  const cancel = document.getElementById('layoutImageCancelEdit');
+  if (cancel) cancel.hidden = false;
+  updateImage(file);
+  setCanvasTitle(`10.2寸${index === 0 ? '上框' : '下框'}图片编辑`);
+  setStatus('请按普通传图方式裁剪、旋转、滤镜或绘制，完成后保存到对应图片框。');
+  document.getElementById('image-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  updateButtonStatus();
+  return true;
+}
+
+function finishLayoutImageEdit(message) {
+  if (layoutImageEditingIndex < 0) return;
+  layoutImageEditingIndex = -1;
+  const sendButton = document.getElementById('sendimgbutton');
+  sendButton.textContent = '发送图片';
+  const cancel = document.getElementById('layoutImageCancelEdit');
+  if (cancel) cancel.hidden = true;
+  document.getElementById('canvasSize').disabled = false;
+  document.getElementById('ditherMode').disabled = false;
+  updateDitcherOptions();
+  setCanvasTitle('');
+  if (message) setStatus(message);
+  document.getElementById('layoutImagePanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  updateButtonStatus();
+}
+
+function cancelLayoutImageEdit() {
+  if (layoutImageEditingIndex < 0) return false;
+  const name = layoutImageEditingIndex === 0 ? '上框' : '下框';
+  finishLayoutImageEdit(`${name}图片编辑已取消。`);
+  addLog(`${name}图片编辑已取消。`);
+  return true;
+}
+
+function captureLayoutImageEdit() {
+  const index = layoutImageEditingIndex;
+  if (index < 0) return false;
+  if (cropManager) cropManager.commitPendingTransform(false);
+  if (canvas.width !== 384 || canvas.height !== 272) return false;
+  const payload = processCanvasImageData();
+  const editor = layoutImageEditors[index];
+  editor.payload = new Uint8Array(payload);
+  editor.preview = decodeProcessedData(editor.payload, 384, 272, 'fourColor');
+  editor.zoom = 1;
+  editor.offsetX = 0;
+  editor.offsetY = 0;
+  renderLayoutImageEditor(index);
+  const name = index === 0 ? '上框' : '下框';
+  const ready = layoutImageEditors.filter(isLayoutImageReady).length;
+  const layoutStatus = document.getElementById('layoutImageStatus');
+  if (layoutStatus) layoutStatus.textContent = ready === 2 ? '上下框图片已完成编辑，可同时上传两张。' : `${name}图片已完成编辑，请继续编辑另一张或单独上传。`;
+  addLog(`${name}图片已按传图编辑结果保存，等待上传。`);
+  finishLayoutImageEdit(`${name}图片已保存，可单独上传或两张一起上传。`);
+  return true;
+}
+
+function encodeLayoutImage(index) {
+  const editor = layoutImageEditors[index];
+  if (editor?.payload) return new Uint8Array(editor.payload);
+  if (!editor?.source) return new Uint8Array(0);
+  renderLayoutImageEditor(index);
+  return editor.payload ? new Uint8Array(editor.payload) : new Uint8Array(0);
+}
+
+async function transferLayoutImage(index, deferRefresh) {
+  const data = encodeLayoutImage(index);
+  if (!data.length) return false;
+  setStatus(`正在上传${index === 0 ? '上框' : '下框'}图片...`);
+  const beginReady = startLayoutImageBeginWait(index);
+  if (!await write(EpdCmd.SET_LAYOUT_IMAGE, new Uint8Array([0, index]))) {
+    clearLayoutImageBeginRequest(false);
+    return false;
+  }
+  if (!await beginReady || !await writeImage(data, 'bw')) return false;
+  return write(EpdCmd.SET_LAYOUT_IMAGE, new Uint8Array([1, index, deferRefresh ? 1 : 0]));
+}
+
+async function runLayoutImageOperation(operation) {
+  if (!layoutImageSupport || layoutImageBusy || !isBleConnected()) return false;
+  layoutImageBusy = true;
+  displayErrorActive = false;
+  startTime = new Date().getTime();
+  updateButtonStatus();
+  try {
+    return await operation();
+  } finally {
+    displayErrorActive = false;
+    layoutImageBusy = false;
+    updateButtonStatus();
+  }
+}
+
+async function uploadLayoutImage(index) {
+  if (!isLayoutImageReady(layoutImageEditors[index])) return false;
+  return runLayoutImageOperation(async () => {
+    const ok = await transferLayoutImage(index, false);
+    if (ok) {
+      document.getElementById('calendarTheme').value = '0';
+      addLog(`${index === 0 ? '上框' : '下框'}图片已保存到设备Flash，并切换到标准布局。`);
+    }
+    return ok;
+  });
+}
+
+async function uploadBothLayoutImages() {
+  if (!layoutImageEditors.every(isLayoutImageReady)) return false;
+  return runLayoutImageOperation(async () => {
+    if (!await transferLayoutImage(0, true)) return false;
+    if (!await transferLayoutImage(1, false)) return false;
+    document.getElementById('calendarTheme').value = '0';
+    addLog('上下框图片已依次保存，并在第二张完成后统一刷新。');
+    return true;
+  });
+}
+
+async function eraseLayoutImage(index) {
+  if (!layoutImageSupport || layoutImageBusy || !isBleConnected() ||
+      !confirm(`确认让${index === 0 ? '上框恢复日期' : '下框恢复温度'}默认显示？`)) return false;
+  return runLayoutImageOperation(async () => {
+    const ok = await write(EpdCmd.SET_LAYOUT_IMAGE, new Uint8Array([2, index, 0]));
+    if (ok) addLog(`${index === 0 ? '上框日期' : '下框温度'}默认显示已恢复。`);
+    return ok;
+  });
+}
+
+async function eraseAllLayoutImages() {
+  if (!layoutImageSupport || layoutImageBusy || !isBleConnected() ||
+      !confirm('确认同时恢复上框日期和下框温度默认显示？')) return false;
+  return runLayoutImageOperation(async () => {
+    if (!await write(EpdCmd.SET_LAYOUT_IMAGE, new Uint8Array([2, 0, 1]))) return false;
+    if (!await write(EpdCmd.SET_LAYOUT_IMAGE, new Uint8Array([2, 1, 0]))) return false;
+    document.getElementById('calendarTheme').value = '0';
+    addLog('上下框已全部恢复默认，并统一刷新标准布局。');
+    return true;
+  });
+}
+
+async function queryLayoutImages() {
+  if (layoutImageSupport && isBleConnected())
+    await write(EpdCmd.SET_LAYOUT_IMAGE, new Uint8Array([3]));
 }
 
 async function setCalendarTheme(theme) {
@@ -323,6 +723,10 @@ function resetVariables(options = {}) {
   slotStreamSupport = false;
   clockFontSupport = false;
   clockFontBusy = false;
+  layoutImageSupport = false;
+  layoutImageBusy = false;
+  layoutImageMask = 0;
+  clearLayoutImageBeginRequest(false);
   imageTransferActive = false;
   cancelImagePrepareWait();
   imageRefreshPending = false;
@@ -2394,6 +2798,7 @@ function packE6Frame(data) {
 }
 
 async function sendimg(options = {}) {
+  if (layoutImageEditingIndex >= 0) return captureLayoutImageEdit();
   if (cropManager) cropManager.commitPendingTransform(false);
   const canvasSize = document.getElementById('canvasSize').value;
   let ditherMode = document.getElementById('ditherMode').value;
@@ -2601,7 +3006,7 @@ function downloadDataArray() {
   URL.revokeObjectURL(link.href);
 }
 
-function updateButtonStatus(forceDisabled = imageTransferActive || slotActionPending || slotReadState !== null || otaBusy || clockFontBusy) {
+function updateButtonStatus(forceDisabled = imageTransferActive || slotActionPending || slotReadState !== null || otaBusy || clockFontBusy || layoutImageBusy) {
   const connected = gattServer != null && gattServer.connected;
   const canReconnect = bleDevice != null && bleDevice.gatt && !bleDevice.gatt.connected;
   const status = forceDisabled ? 'disabled' : (connected ? null : 'disabled');
@@ -2614,7 +3019,7 @@ function updateButtonStatus(forceDisabled = imageTransferActive || slotActionPen
   const batteryStatus = document.getElementById('batteryStatus');
   if (batteryStatus) batteryStatus.disabled = Boolean(status);
   updateCalendarThemeAvailability();
-  document.getElementById("sendimgbutton").disabled = status;
+  document.getElementById("sendimgbutton").disabled = layoutImageEditingIndex >= 0 ? false : status;
   const calendarStyleSend = document.getElementById("calendarStyleSend");
   if (calendarStyleSend) calendarStyleSend.disabled = Boolean(status);
   document.getElementById("setDriverbutton").disabled = status;
@@ -2634,6 +3039,7 @@ function updateButtonStatus(forceDisabled = imageTransferActive || slotActionPen
   document.getElementById("stopSlotSlideButton").disabled = status;
   document.getElementById('clockFontUploadButton').disabled = Boolean(status) || !clockFontSupport;
   document.getElementById('clockFontEraseButton').disabled = Boolean(status) || !clockFontSupport;
+  updateLayoutImageAvailability();
   updateOtaControls();
   renderSlotGrid(forceDisabled);
 }
@@ -2894,6 +3300,18 @@ function handleNotify(value, idx) {
       setClockFontStatus(`字体操作失败：${msg.substring('font_error='.length)}`);
       clockFontBusy = false;
       updateButtonStatus();
+    } else if (msg.startsWith('layout_img=')) {
+      updateLayoutImageStatus(parseInt(msg.substring('layout_img='.length), 10) || 0);
+    } else if (msg.startsWith('layout_ready=')) {
+      const index = parseInt(msg.substring('layout_ready='.length), 10);
+      if (layoutImageBeginRequest && layoutImageBeginRequest.index === index)
+        clearLayoutImageBeginRequest(true);
+    } else if (msg.startsWith('layout_error=')) {
+      const reason = msg.substring('layout_error='.length);
+      displayErrorActive = true;
+      clearLayoutImageBeginRequest(false);
+      document.getElementById('layoutImageStatus').textContent = `布局图片操作失败：${reason}`;
+      addLog(`布局图片操作失败：${reason}`);
     } else if (msg.startsWith('mtu=') && msg.length > 4) {
       const mtuParts = msg.substring(4).trim().split(/\s+/);
       const mtuSize = parseInt(mtuParts[0], 10);
@@ -2901,12 +3319,15 @@ function handleNotify(value, idx) {
       gray4Support = mtuParts.includes('gray4=1');
       slotStreamSupport = mtuParts.includes('slot_stream=1');
       clockFontSupport = mtuParts.includes('clock_font=1');
+      layoutImageSupport = mtuParts.includes('layout_img=1');
       if (clockFontSupport) setClockFontFormat(mtuParts.includes('cf2=1') ? 2 : 1);
       document.getElementById('mtusize').value = mtuSize;
       addLog(`MTU 已更新为: ${mtuSize}`);
       if (rleSupport) addLog('设备已启用 RLE 压缩传输。');
       updateGDEYImageModeControls();
       if (clockFontSupport) void queryClockFont();
+      updateLayoutImageAvailability();
+      if (layoutImageSupport) void queryLayoutImages();
     } else if (msg.startsWith('t=') && msg.length > 2) {
       const t = parseInt(msg.substring(2)) + new Date().getTimezoneOffset() * 60;
       addLog(`远端时间: ${new Date(t * 1000).toLocaleString()}`);
@@ -2971,6 +3392,7 @@ async function connect() {
   }
 
   await write(EpdCmd.INIT);
+  await sendTimeCommand(1, '日历模式');
   await write(EpdCmd.GET_STATUS);
 
   document.getElementById("connectbutton").innerHTML = '断开';
@@ -4289,6 +4711,7 @@ function checkDebugMode() {
     link.innerHTML = '开发模式';
     link.setAttribute('href', window.location.pathname + '?debug=true');
   }
+  layoutImageEditors.forEach((_, index) => renderLayoutImageEditor(index));
 }
 
 document.body.onload = () => {
@@ -4307,6 +4730,7 @@ document.body.onload = () => {
   paintManager.initPaintTools();
   cropManager.initCropTools();
   initEventHandlers();
+  initLayoutImageEditors();
   initClockFontCanvas();
   window.addEventListener('pagehide', disconnectDeviceOnPageExit);
   window.addEventListener('beforeunload', disconnectDeviceOnPageExit);

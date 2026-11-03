@@ -6,7 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>墨水屏日历 V2.0</title>
 	<link rel="shortcut icon" type="image/png" href="favicon.png">
-	<link rel="stylesheet" href="css/main.css?v=20261028-theme-battery-v3">
+	<link rel="stylesheet" href="css/main.css?v=20261102-750-themes-v7">
 </head>
 
 <body>
@@ -159,6 +159,7 @@
 					<button id="calendarmodebutton" type="button" class="primary" onclick="syncTime(1)">日历模式</button>
 					<button id="clockmodebutton" type="button" class="primary" onclick="syncTime(2)">时钟模式</button>
 					<button id="calendarstylebutton" type="button" class="secondary" onclick="toggleCalendarStylePanel()" aria-expanded="false" aria-controls="calendarStylePanel">日历风格</button>
+					<button id="layoutImagePanelToggle" type="button" class="secondary" onclick="toggleLayoutImagePanel()" aria-expanded="false" aria-controls="layoutImagePanel" hidden>标准布局双图片</button>
 					<button id="clockFontPanelToggle" type="button" class="secondary" onclick="toggleClockFontPanel()" aria-expanded="false" aria-controls="clockFontPanel">时钟字体</button>
 					<button id="clearscreenbutton" type="button" class="secondary" onclick="clearScreen()">清除屏幕</button>
 				</div>
@@ -166,6 +167,33 @@
 					<input type="text" id="cmdTXT" value="">
 					<button id="sendcmdbutton" type="button" class="primary" onclick="sendcmd()">发送命令</button>
 				</div>
+			</div>
+			<div id="layoutImagePanel" class="calendar-style-panel layout-image-panel" hidden>
+				<div class="layout-image-toolbar">
+					<div>
+						<div class="calendar-style-section-title">标准布局双图片</div>
+						<small>图片选好后可在预览框内自由滚轮缩放、按住拖动并直接上传；滤镜、旋转和绘制可继续进入传图区编辑。</small>
+					</div>
+					<div class="layout-image-batch-actions">
+						<button id="layoutImageUploadBoth" data-device-action type="button" class="primary" onclick="uploadBothLayoutImages()">同时上传两张</button>
+						<button id="layoutImageEraseAll" data-device-action type="button" class="secondary" onclick="eraseAllLayoutImages()">全部恢复默认</button>
+					</div>
+				</div>
+				<div class="layout-image-grid">
+					<article class="layout-image-card">
+						<div class="layout-image-card-title"><strong>上框图片</strong><span>默认：当天日期</span></div>
+						<label class="layout-image-file" for="layoutImageFile0">选择图片<input id="layoutImageFile0" type="file" accept="image/*" onchange="loadLayoutImagePreview(0)"></label>
+						<div class="layout-image-preview"><canvas id="layoutImageCanvas0" width="384" height="272" aria-label="上框图片编辑结果预览"></canvas></div>
+						<div class="layout-image-card-actions"><button data-layout-edit="0" type="button" class="secondary" onclick="beginLayoutImageEdit(0)">在传图区编辑上框</button><button data-device-action data-layout-upload="0" type="button" class="primary" onclick="uploadLayoutImage(0)">上传上框</button><button data-device-action type="button" class="secondary" onclick="eraseLayoutImage(0)">恢复日期</button></div>
+					</article>
+					<article class="layout-image-card">
+						<div class="layout-image-card-title"><strong>下框图片</strong><span>默认：数码管温度</span></div>
+						<label class="layout-image-file" for="layoutImageFile1">选择图片<input id="layoutImageFile1" type="file" accept="image/*" onchange="loadLayoutImagePreview(1)"></label>
+						<div class="layout-image-preview"><canvas id="layoutImageCanvas1" width="384" height="272" aria-label="下框图片编辑结果预览"></canvas></div>
+						<div class="layout-image-card-actions"><button data-layout-edit="1" type="button" class="secondary" onclick="beginLayoutImageEdit(1)">在传图区编辑下框</button><button data-device-action data-layout-upload="1" type="button" class="primary" onclick="uploadLayoutImage(1)">上传下框</button><button data-device-action type="button" class="secondary" onclick="eraseLayoutImage(1)">恢复温度</button></div>
+					</article>
+				</div>
+				<div id="layoutImageStatus" role="status" aria-live="polite">请选择图片；可在预览框内自由缩放和拖动，调整后单独上传或同时上传两张。</div>
 			</div>
 			<div id="calendarStylePanel" class="calendar-style-panel" hidden>
 				<div class="calendar-style-workspace">
@@ -387,11 +415,11 @@
 						<option value="sevenColor">七色(黑白红黄蓝绿橙)</option>
 					</select>
 				</div>
-				<fieldset id="gdeyGrayMode" class="flex-group" hidden>
-					<legend>GDEY037T03 图像模式</legend>
-					<label><input id="bwMode" type="radio" name="gdeyImageMode" value="bw" checked onchange="applyDither()"> 黑白</label>
-					<label><input id="gray4Mode" type="radio" name="gdeyImageMode" value="gray4" disabled onchange="applyDither()"> 四级灰度</label>
-				</fieldset>
+				<div id="gdeyGrayMode" class="gdey-mode-switch" role="group" aria-label="GDEY037T03图像模式" hidden>
+					<span class="gdey-mode-label">3.7图像</span>
+					<label class="gdey-mode-option"><input id="bwMode" type="radio" name="gdeyImageMode" value="bw" checked onchange="applyDither()"><span>黑白</span></label>
+					<label class="gdey-mode-option"><input id="gray4Mode" type="radio" name="gdeyImageMode" value="gray4" disabled onchange="applyDither()"><span>四级灰度</span></label>
+				</div>
 				<div class="flex-group">
 					<label for="ditherAlg">抖动算法:</label>
 					<select id="ditherAlg" onchange="applyDither()">
@@ -450,6 +478,7 @@
 				<div class="flex-group image-send-actions" role="group" aria-label="发送和图片方向操作">
 					<button type="button" class="secondary debug" onclick="downloadDataArray()">下载数组</button>
 					<button id="sendimgbutton" type="button" class="primary" onclick="sendimg()">发送图片</button>
+					<button id="layoutImageCancelEdit" type="button" class="secondary" onclick="cancelLayoutImageEdit()" hidden>退出框图编辑</button>
 					<button id="rotate-left" type="button" title="向左旋转" aria-label="向左旋转" class="tool-button">↺</button>
 					<button id="rotate-right" type="button" title="向右旋转" aria-label="向右旋转" class="tool-button">↻</button>
 					<button id="reset-transform" type="button" title="重置图片位置、缩放和旋转" aria-label="重置图片变换" class="tool-button">⟲</button>
@@ -747,7 +776,7 @@
 	<script type="text/javascript" src="js/crop.js?v=2026072302"></script>
 	<script type="text/javascript" src="js/secure-dfu.js?v=2026072703"></script>
 	<script type="text/javascript" src="js/collage.js?v=20261028"></script>
-	<script type="text/javascript" src="js/main.js?v=20261029-ssd1619-290-v1"></script>
+	<script type="text/javascript" src="js/main.js?v=20261102-750-themes-v7"></script>
 </body>
 
 </html>
